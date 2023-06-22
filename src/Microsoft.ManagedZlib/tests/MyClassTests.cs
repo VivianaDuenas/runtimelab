@@ -8,7 +8,7 @@ namespace Experiment.Tests
         [Fact]
         public void Test1()
         {
-            Assert.True(MyClass.ReturnTrue);
+            Assert.True(ManagedZlib.ReturnTrue);
         }
     }
 }
