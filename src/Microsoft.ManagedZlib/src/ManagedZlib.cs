@@ -22,7 +22,7 @@ internal static class ManagedZLib
     //Vivi's notes(ES):Es justo y necesario (tener una estructura para ZStream)
     //aunque si requiere un formato mas complejo que ints, tal vez sea necesario
     //usar la clase ManagedZLib.ZStream -- else, hay que borrarla (ta vacia so far)
-    internal struct ZStream  //Aunque, checar ZLibStream para ver si los metodos de al final se pueden unificar
+    internal struct ZStream  //Aunque, checar ZLibStream para ver si los metodos de al final - luego de la clase- se pueden unificar
     {
         internal byte[] nextIn;  //Bytef    *next_in;  /* next input byte */
         internal byte[] nextOut; //Bytef    *next_out; /* next output byte should be put there */
@@ -32,6 +32,7 @@ internal static class ManagedZLib
         internal uint availIn;   //uInt     avail_in;  /* number of bytes available at next_in */
         internal uint availOut;  //uInt     avail_out; /* remaining free space at next_out */
     }
+    //-------------Vivi's notes> Check, ZStream properties and definitions
     public static bool ReturnTrue => true; //This is just for the unit test example
 
     public enum FlushCode : int //Vivi's notes: For knowing how much and when to produce output
@@ -175,7 +176,32 @@ internal static class ManagedZLib
 
         private ZStream _zStream;
 
-        //Vivi's notes: Not unsafe anymore because there are no ptrs being handled
+        // ZStream properties so far
+        public byte[] NextIn
+        {
+            get { return _zStream.nextIn; }
+            set { _zStream.nextIn = value; }
+        }
+
+        public uint AvailIn
+        {
+            get { return _zStream.availIn; }
+            set { _zStream.availIn = value; }
+        }
+
+        public byte[] NextOut
+        {
+            get { return _zStream.nextOut; }
+            set { _zStream.nextOut = value; }
+        }
+
+        public uint AvailOut
+        {
+            get { return _zStream.availOut; }
+            set { _zStream.availOut = value; }
+        }
+
+        //Vivi's notes: Not unsafe anymore because there are no ptrs being handled -- but checking the possibility of using span
         public ErrorCode DeflateInit2_(CompressionLevel level, int windowBits, int memLevel, CompressionStrategy strategy)
         {
         //Vivi's notes: Kept notation for readiness

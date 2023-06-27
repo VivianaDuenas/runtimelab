@@ -5,6 +5,7 @@ using System;
 using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
 
@@ -144,7 +145,7 @@ namespace Microsoft.ManagedZLib
         ///
         /// Returns false if the leftover input is another GZip data stream.
         /// </summary>
-        private unsafe bool ResetStreamForLeftoverInput()
+        private bool ResetStreamForLeftoverInput()
         {
             Debug.Assert(!NeedsInput());
             Debug.Assert(IsGzipStream());
@@ -152,18 +153,24 @@ namespace Microsoft.ManagedZLib
 
             lock (SyncLock)
             {
-                IntPtr nextInPtr = _zlibStream.NextIn;
-                byte* nextInPointer = (byte*)nextInPtr.ToPointer();
+                byte[] nextInPtr = _zlibStream.NextIn;
+                Span<byte> nextInPointer = nextInPtr;
                 uint nextAvailIn = _zlibStream.AvailIn;
 
+                //-------------------------------------------------Vivi's notes(ES):
+                //Help> Se que C# span no soporta log aritmetica como los pointer de c++
+                // Como traduzco esto? *(b+1)
+                // No creo que esto sea equivalente> MemoryMarshal.GetReference(nextInPointer) + 1
+                // lo dejare pa que ocmpile pero hay que checarlo para la logica
+
                 // Check the leftover bytes to see if they start with he gzip header ID bytes
-                if (*nextInPointer != ManagedZLib.GZip_Header_ID1 || (nextAvailIn > 1 && *(nextInPointer + 1) != ManagedZLib.GZip_Header_ID2))
+                if (MemoryMarshal.GetReference(nextInPointer) != ManagedZLib.GZip_Header_ID1 || (nextAvailIn > 1 && MemoryMarshal.GetReference(nextInPointer) + 1 != ManagedZLib.GZip_Header_ID2))
                 {
                     return true;
                 }
-
+                
                 // Trash our existing zstream.
-                _zlibStream.Dispose();
+                //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
 
                 // Create a new zstream
                 InflateInit(_windowBits);
@@ -193,7 +200,7 @@ namespace Microsoft.ManagedZLib
             SetInput(inputBuffer.AsMemory(startIndex, count));
         }
 
-        public unsafe void SetInput(ReadOnlyMemory<byte> inputBuffer)
+        public void SetInput(ReadOnlyMemory<byte> inputBuffer)
         {
             Debug.Assert(NeedsInput(), "We have something left in previous input!");
             Debug.Assert(!IsInputBufferHandleAllocated);
@@ -204,7 +211,10 @@ namespace Microsoft.ManagedZLib
             lock (SyncLock)
             {
                 _inputBufferHandle = inputBuffer.Pin();
-                _zlibStream.NextIn = (IntPtr)_inputBufferHandle.Pointer;
+                //Vivi's note> Como no se como manejar los handles - so far se asocian con arreglos de byte
+                // pero entonces si se quedara asi, deberia aniadir un toarray memoryHandle o ver si uso eso
+                // Resumen--------------------TBD----------------------------
+                //_zlibStream.NextIn = _inputBufferHandle.ToArray; //No se como poner la memoria pinned en my byte array
                 _zlibStream.AvailIn = (uint)inputBuffer.Length;
                 _finished = false;
                 _nonEmptyInput = true;
@@ -216,17 +226,18 @@ namespace Microsoft.ManagedZLib
             if (!_isDisposed)
             {
                 if (disposing)
-                    //_zlibStream.Dispose();
-                    // Vivi's note: Queda por ver como implementar los handles 
+                    //Vivi's note: DISPOSE override OF ZSTREAM dispose method *not yet imlemented
+                    // Vivi's note(ES): Queda por ver como implementar los handles 
                     //y por ende, cómo hacer el dispose correcto de ellos
 
-                if (IsInputBufferHandleAllocated)
+                    if (IsInputBufferHandleAllocated)
                     DeallocateInputBufferHandle();
 
                 _isDisposed = true;
             }
         }
 
+        // Dispose wrapper
         public void Dispose()
         {
             Dispose(true);
@@ -280,11 +291,11 @@ namespace Microsoft.ManagedZLib
         /// <summary>
         /// Wrapper around the ZLib inflate function, configuring the stream appropriately.
         /// </summary>
-        private unsafe ManagedZLib.ErrorCode ReadInflateOutput(byte* bufPtr, int length, ManagedZLib.FlushCode flushCode, out int bytesRead)
+        private ManagedZLib.ErrorCode ReadInflateOutput(byte[] buffer, int length, ManagedZLib.FlushCode flushCode, out int bytesRead)
         {
             lock (SyncLock)
             {
-                _zlibStream.NextOut = (IntPtr)bufPtr;
+                _zlibStream.NextOut = buffer; // Vivi's note> Checar luego porque no se si lo dejare de tipo byte[]
                 _zlibStream.AvailOut = (uint)length;
 
                 ManagedZLib.ErrorCode errC = Inflate(flushCode);
