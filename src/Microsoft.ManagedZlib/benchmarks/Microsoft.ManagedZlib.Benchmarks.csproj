@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.13.5" />
-	<ProjectReference Include="..\src\Microsoft.ManagedZlib.csproj" />
+	<ProjectReference Include="..\src\Microsoft.ManagedZLib.csproj" />
   </ItemGroup>
 	
 </Project>

@@ -3,11 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.6.33801.468
 MinimumVisualStudioVersion = 15.0.26124.0
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.ManagedZlib", "src\Microsoft.ManagedZlib\src\Microsoft.ManagedZlib.csproj", "{B7977360-6671-4707-9A1C-1C29D5BE2674}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.ManagedZLib", "src\Microsoft.ManagedZLib\src\Microsoft.ManagedZLib.csproj", "{B7977360-6671-4707-9A1C-1C29D5BE2674}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.ManagedZlib.Tests", "src\Microsoft.ManagedZlib\tests\Microsoft.ManagedZlib.Tests.csproj", "{CE81B6BD-CCCC-4223-9069-B28435A4A5C1}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.ManagedZLib.Tests", "src\Microsoft.ManagedZLib\tests\Microsoft.ManagedZLib.Tests.csproj", "{CE81B6BD-CCCC-4223-9069-B28435A4A5C1}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.ManagedZlib.Benchmarks", "src\Microsoft.ManagedZlib\benchmarks\Microsoft.ManagedZlib.Benchmarks.csproj", "{56594674-14FE-4BCA-BFFE-F4FAFA4F2282}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.ManagedZLib.Benchmarks", "src\Microsoft.ManagedZLib\benchmarks\Microsoft.ManagedZLib.Benchmarks.csproj", "{56594674-14FE-4BCA-BFFE-F4FAFA4F2282}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -2,7 +2,7 @@
 using System.IO; //para path
 
 
-namespace Experiment.Benchmarks
+namespace Microsoft.ManagedZLib.Benchmarks
 {
     // Referring the dotnet/performance documentation (performance/docs/microbenchmark-design-guidelines.md)
     /* 
@@ -10,7 +10,7 @@ namespace Experiment.Benchmarks
     So the type with benchmarks must not be sealed and it can NOT BE STATIC 
     and it has to BE PUBLIC. It also has to be a class (no structs support).
     */
-    public class ManagedZlibBenchmark{
+    public class ManagedZLibBenchmark{
 
        
         //private string message = "prueba Benchmarks";

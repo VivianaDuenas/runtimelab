@@ -1,7 +1,7 @@
 using System;
 using Xunit;
 
-namespace Experiment.Tests
+namespace Microsoft.ManagedZLib.Tests
 {
     public class MyClassTests
     {

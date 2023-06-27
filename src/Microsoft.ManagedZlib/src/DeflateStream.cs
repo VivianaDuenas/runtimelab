@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -9,7 +10,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Microsoft.ManagedZlib;
+namespace Microsoft.ManagedZLib;
 
 public partial class DeflateStream : Stream
 {
@@ -24,7 +25,7 @@ public partial class DeflateStream : Stream
     private int _activeAsyncOperation; // 1 == true, 0 == false
     private bool _wroteBytes;
 
-    internal DeflateStream(Stream stream, CompressionMode mode, long uncompressedSize) : this(stream, mode, leaveOpen: false, ZLibNative.Deflate_DefaultWindowBits, uncompressedSize)
+    internal DeflateStream(Stream stream, CompressionMode mode, long uncompressedSize) : this(stream, mode, leaveOpen: false, ManagedZLib.Deflate_DefaultWindowBits, uncompressedSize)
     {
     }
 
@@ -32,7 +33,7 @@ public partial class DeflateStream : Stream
     {
     }
 
-    public DeflateStream(Stream stream, CompressionMode mode, bool leaveOpen) : this(stream, mode, leaveOpen, ZLibNative.Deflate_DefaultWindowBits)
+    public DeflateStream(Stream stream, CompressionMode mode, bool leaveOpen) : this(stream, mode, leaveOpen, ManagedZLib.Deflate_DefaultWindowBits)
     {
     }
 
@@ -42,7 +43,7 @@ public partial class DeflateStream : Stream
     }
 
     // Implies mode = Compress
-    public DeflateStream(Stream stream, CompressionLevel compressionLevel, bool leaveOpen) : this(stream, compressionLevel, leaveOpen, ZLibNative.Deflate_DefaultWindowBits)
+    public DeflateStream(Stream stream, CompressionLevel compressionLevel, bool leaveOpen) : this(stream, compressionLevel, leaveOpen, ManagedZLib.Deflate_DefaultWindowBits)
     {
     }
 
@@ -58,7 +59,9 @@ public partial class DeflateStream : Stream
         {
             case CompressionMode.Decompress:
                 if (!stream.CanRead)
-                    throw new ArgumentException(SR.NotSupported_UnreadableStream, nameof(stream));
+                    //This would normally use System.SR
+                    //For testing purposes, we are going to use the exception message directly
+                    throw new ArgumentException("NotSupported_UnreadableStream - Stream does not support reading.", nameof(stream));
 
                 _inflater = new Inflater(windowBits, uncompressedSize);
                 _stream = stream;
@@ -71,7 +74,7 @@ public partial class DeflateStream : Stream
                 break;
 
             default:
-                throw new ArgumentException(SR.ArgumentOutOfRange_Enum, nameof(mode));
+                throw new ArgumentException("ArgumentOutOfRange_Enum - Enum value was out of legal range.", nameof(mode));
         }
     }
 
@@ -93,7 +96,7 @@ public partial class DeflateStream : Stream
     {
         Debug.Assert(stream != null);
         if (!stream.CanWrite)
-            throw new ArgumentException(SR.NotSupported_UnwritableStream, nameof(stream));
+            throw new ArgumentException("NotSupported_UnwritableStream - Stream does not support writing.", nameof(stream));
 
         _deflater = new Deflater(compressionLevel, windowBits);
 
@@ -151,13 +154,13 @@ public partial class DeflateStream : Stream
 
     public override long Length
     {
-        get { throw new NotSupportedException(SR.NotSupported); }
+        get { throw new NotSupportedException("NotSupported - This operation is not supported."); }
     }
 
     public override long Position
     {
-        get { throw new NotSupportedException(SR.NotSupported); }
-        set { throw new NotSupportedException(SR.NotSupported); }
+        get { throw new NotSupportedException("NotSupported - This operation is not supported."); }
+        set { throw new NotSupportedException("NotSupported - This operation is not supported."); }
     }
 
     public override void Flush()
@@ -214,12 +217,12 @@ public partial class DeflateStream : Stream
 
     public override long Seek(long offset, SeekOrigin origin)
     {
-        throw new NotSupportedException(SR.NotSupported);
+        throw new NotSupportedException("NotSupported - This operation is not supported.");
     }
 
     public override void SetLength(long value)
     {
-        throw new NotSupportedException(SR.NotSupported);
+        throw new NotSupportedException("NotSupported - This operation is not supported.");
     }
 
     public override int ReadByte()
@@ -336,7 +339,7 @@ public partial class DeflateStream : Stream
             ThrowCannotReadFromDeflateStreamException();
 
         static void ThrowCannotReadFromDeflateStreamException() =>
-            throw new InvalidOperationException(SR.CannotReadFromDeflateStream);
+            throw new InvalidOperationException("CannotReadFromDeflateStream - Reading from the compression stream is not supported.");
     }
 
     private void EnsureCompressionMode()
@@ -345,16 +348,16 @@ public partial class DeflateStream : Stream
             ThrowCannotWriteToDeflateStreamException();
 
         static void ThrowCannotWriteToDeflateStreamException() =>
-            throw new InvalidOperationException(SR.CannotWriteToDeflateStream);
+            throw new InvalidOperationException("CannotWriteToDeflateStream - Writing to the compression stream is not supported.");
     }
 
     private static void ThrowGenericInvalidData() =>
         // The stream is either malicious or poorly implemented and returned a number of
         // bytes < 0 || > than the buffer supplied to it.
-        throw new InvalidDataException(SR.GenericInvalidData);
+        throw new InvalidDataException("GenericInvalidData - Found invalid data while decoding.");
 
     private static void ThrowTruncatedInvalidData() =>
-        throw new InvalidDataException(SR.TruncatedData);
+        throw new InvalidDataException("TruncatedData - Found truncated data while decoding.");
 
     public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback? asyncCallback, object? asyncState) =>
         TaskToAsyncResult.Begin(ReadAsync(buffer, offset, count, CancellationToken.None), asyncCallback, asyncState);
@@ -601,7 +604,7 @@ public partial class DeflateStream : Stream
         else
         {
             // In case of zero length buffer, we still need to clean up the native created stream before
-            // the object get disposed because eventually ZLibNative.ReleaseHandle will get called during
+            // the object get disposed because eventually ManagedZLib.ReleaseHandle will get called during
             // the dispose operation and although it frees the stream but it return error code because the
             // stream state was still marked as in use. The symptoms of this problem will not be seen except
             // if running any diagnostic tools which check for disposing safe handle objects
@@ -648,7 +651,7 @@ public partial class DeflateStream : Stream
         else
         {
             // In case of zero length buffer, we still need to clean up the native created stream before
-            // the object get disposed because eventually ZLibNative.ReleaseHandle will get called during
+            // the object get disposed because eventually ManagedZLib.ReleaseHandle will get called during
             // the dispose operation and although it frees the stream, it returns an error code because the
             // stream state was still marked as in use. The symptoms of this problem will not be seen except
             // if running any diagnostic tools which check for disposing safe handle objects.
@@ -971,7 +974,7 @@ public partial class DeflateStream : Stream
             {
                 // The buffer stream is either malicious or poorly implemented and returned a number of
                 // bytes larger than the buffer supplied to it.
-                return Task.FromException(new InvalidDataException(SR.GenericInvalidData));
+                return Task.FromException(new InvalidDataException("GenericInvalidData - Found invalid data while decoding."));
             }
 
             return WriteAsyncCore(buffer.AsMemory(offset, count), cancellationToken).AsTask();
@@ -1020,7 +1023,7 @@ public partial class DeflateStream : Stream
             {
                 // The buffer stream is either malicious or poorly implemented and returned a number of
                 // bytes larger than the buffer supplied to it.
-                throw new InvalidDataException(SR.GenericInvalidData);
+                throw new InvalidDataException("GenericInvalidData - Found invalid data while decoding.");
             }
 
             Debug.Assert(_deflateStream._inflater != null);
@@ -1074,7 +1077,7 @@ public partial class DeflateStream : Stream
         Volatile.Write(ref _activeAsyncOperation, 0);
 
     private static void ThrowInvalidBeginCall() =>
-        throw new InvalidOperationException(SR.InvalidBeginCall);
+        throw new InvalidOperationException("InvalidBeginCall - Only one asynchronous reader or writer is allowed time at one time.");
 
     private static readonly bool s_useStrictValidation =
         AppContext.TryGetSwitch("System.IO.Compression.UseStrictValidation", out bool strictValidation) ? strictValidation : false;

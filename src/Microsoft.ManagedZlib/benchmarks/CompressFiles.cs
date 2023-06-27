@@ -3,7 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 
-namespace Experiment.Benchmarks
+namespace Microsoft.ManagedZLib.Benchmarks
 {
     class CompressFiles
     {
