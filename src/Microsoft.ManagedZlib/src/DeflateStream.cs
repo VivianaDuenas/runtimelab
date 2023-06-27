@@ -518,7 +518,7 @@ public partial class DeflateStream : Stream
         unsafe
         {
             // Pass new bytes through deflater and write them too:
-            fixed (byte* bufferPtr = &MemoryMarshal.GetReference(buffer))
+            fixed (byte* bufferPtr = &MemoryMarshal.GetReference(buffer)) //NO NEED OF MARSHALL anymore -Vivi-
             {
                 _deflater.SetInput(bufferPtr, buffer.Length);
                 WriteDeflaterOutput();

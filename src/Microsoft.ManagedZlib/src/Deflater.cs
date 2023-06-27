@@ -6,8 +6,8 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Security;
 
-using ZErrorCode = System.IO.Compression.ManagedZLib.ErrorCode;
-using ZFlushCode = System.IO.Compression.ManagedZLib.FlushCode;
+using ZErrorCode = Microsoft.ManagedZLib.ManagedZLib.ErrorCode;
+using ZFlushCode = Microsoft.ManagedZLib.ManagedZLib.FlushCode;
 
 namespace Microsoft.ManagedZLib
 {

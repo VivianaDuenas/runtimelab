@@ -22,7 +22,7 @@ namespace Microsoft.ManagedZLib
         private bool _finished;                             // Whether the end of the stream has been reached
         private bool _isDisposed;                           // Prevents multiple disposals
         private readonly int _windowBits;                   // The WindowBits parameter passed to Inflater construction
-        private ZLibNative.ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream
+        private ManagedZLib.ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream
         private MemoryHandle _inputBufferHandle;            // The handle to the buffer that provides input to _zlibStream
         private readonly long _uncompressedSize;
         private long _currentInflatedCount;
@@ -43,36 +43,38 @@ namespace Microsoft.ManagedZLib
             _uncompressedSize = uncompressedSize;
         }
 
-        public int AvailableOutput => (int)_zlibStream.AvailOut;
+        // Vivi's note> Took AvailOut pointer out
+        //This is important for the knowing the state of the output buffer
+        // BUT further investigation needed for how (best way) to implement it in the managed version
+        //public int AvailableOutput => (int)_zlibStream.AvailOut;
 
         /// <summary>
         /// Returns true if the end of the stream has been reached.
         /// </summary>
-        public bool Finished() => _finished;
+        public bool Finished() => _finished; //Este tipo de flags son importantes aunque maybe desde otra perspectiva(no ptrs)
 
-        public unsafe bool Inflate(out byte b)
+        //Checking not to pass a null output buffer 
+        public bool Inflate(byte[] bytes)
         {
-            fixed (byte* bufPtr = &b)
-            {
-                int bytesRead = InflateVerified(bufPtr, 1);
-                Debug.Assert(bytesRead == 0 || bytesRead == 1);
-                return bytesRead != 0;
-            }
+            //Validating output buffer is not null
+            return false;
         }
 
         public unsafe int Inflate(byte[] bytes, int offset, int length)
         {
+            //El bufPtr de antes puede ser solo un int con la posicion
             // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
             if (length == 0)
                 return 0;
 
             Debug.Assert(null != bytes, "Can't pass in a null output buffer!");
-            fixed (byte* bufPtr = bytes)
+            fixed ( Span<byte> buffer = bytes)
             {
-                return InflateVerified(bufPtr + offset, length);
+                return InflateVerified(buffer+offset, length); //Necesita una posicion (localidad) de inicio + length
             }
         }
 
+        //Vivi's notes: We'll use span instead of pointer to bytes
         public unsafe int Inflate(Span<byte> destination)
         {
             // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
@@ -85,7 +87,7 @@ namespace Microsoft.ManagedZLib
             }
         }
 
-        public unsafe int InflateVerified(byte* bufPtr, int length)
+        public unsafe int InflateVerified(byte[] bytes, int length)
         {
             // State is valid; attempt inflation
             try
@@ -121,9 +123,9 @@ namespace Microsoft.ManagedZLib
             }
         }
 
-        private unsafe void ReadOutput(byte* bufPtr, int length, out int bytesRead)
+        private unsafe void ReadOutput(byte[] buffer, int length, out int bytesRead)
         {
-            if (ReadInflateOutput(bufPtr, length, ZLibNative.FlushCode.NoFlush, out bytesRead) == ZLibNative.ErrorCode.StreamEnd)
+            if (ReadInflateOutput(buffer, length, ManagedZLib.FlushCode.NoFlush, out bytesRead) == ManagedZLib.ErrorCode.StreamEnd)
             {
                 if (!NeedsInput() && IsGzipStream() && IsInputBufferHandleAllocated)
                 {
@@ -155,7 +157,7 @@ namespace Microsoft.ManagedZLib
                 uint nextAvailIn = _zlibStream.AvailIn;
 
                 // Check the leftover bytes to see if they start with he gzip header ID bytes
-                if (*nextInPointer != ZLibNative.GZip_Header_ID1 || (nextAvailIn > 1 && *(nextInPointer + 1) != ZLibNative.GZip_Header_ID2))
+                if (*nextInPointer != ManagedZLib.GZip_Header_ID1 || (nextAvailIn > 1 && *(nextInPointer + 1) != ManagedZLib.GZip_Header_ID2))
                 {
                     return true;
                 }
@@ -240,10 +242,10 @@ namespace Microsoft.ManagedZLib
         [MemberNotNull(nameof(_zlibStream))]
         private void InflateInit(int windowBits)
         {
-            ZLibNative.ErrorCode error;
+            ManagedZLib.ErrorCode error;
             try
             {
-                error = ZLibNative.CreateZLibStreamForInflate(out _zlibStream, windowBits);
+                error = ManagedZLib.CreateZLibStreamForInflate(out _zlibStream, windowBits);
             }
             catch (Exception exception) // could not load the ZLib dll
             {
@@ -252,18 +254,18 @@ namespace Microsoft.ManagedZLib
 
             switch (error)
             {
-                case ZLibNative.ErrorCode.Ok:           // Successful initialization
+                case ManagedZLib.ErrorCode.Ok:           // Successful initialization
                     return;
 
-                case ZLibNative.ErrorCode.MemError:     // Not enough memory
+                case ManagedZLib.ErrorCode.MemError:     // Not enough memory
                     throw new ZLibException("ZLibErrorNotEnoughMemory - The underlying compression routine could not reserve sufficient memory.",
                         "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
 
-                case ZLibNative.ErrorCode.VersionError: //zlib library is incompatible with the version assumed
+                case ManagedZLib.ErrorCode.VersionError: //zlib library is incompatible with the version assumed
                     throw new ZLibException("ZLibErrorVersionMismatch - The version of the underlying compression routine does not match expected version.",
                         "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
 
-                case ZLibNative.ErrorCode.StreamError:  // Parameters are invalid
+                case ManagedZLib.ErrorCode.StreamError:  // Parameters are invalid
                     throw new ZLibException("ZLibErrorIncorrectInitParameters - The underlying compression routine received incorrect initialization parameters.",
                         "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
 
@@ -276,14 +278,14 @@ namespace Microsoft.ManagedZLib
         /// <summary>
         /// Wrapper around the ZLib inflate function, configuring the stream appropriately.
         /// </summary>
-        private unsafe ZLibNative.ErrorCode ReadInflateOutput(byte* bufPtr, int length, ZLibNative.FlushCode flushCode, out int bytesRead)
+        private unsafe ManagedZLib.ErrorCode ReadInflateOutput(byte* bufPtr, int length, ManagedZLib.FlushCode flushCode, out int bytesRead)
         {
             lock (SyncLock)
             {
                 _zlibStream.NextOut = (IntPtr)bufPtr;
                 _zlibStream.AvailOut = (uint)length;
 
-                ZLibNative.ErrorCode errC = Inflate(flushCode);
+                ManagedZLib.ErrorCode errC = Inflate(flushCode);
                 bytesRead = length - (int)_zlibStream.AvailOut;
 
                 return errC;
@@ -293,9 +295,9 @@ namespace Microsoft.ManagedZLib
         /// <summary>
         /// Wrapper around the ZLib inflate function
         /// </summary>
-        private ZLibNative.ErrorCode Inflate(ZLibNative.FlushCode flushCode)
+        private ManagedZLib.ErrorCode Inflate(ManagedZLib.FlushCode flushCode)
         {
-            ZLibNative.ErrorCode errC;
+            ManagedZLib.ErrorCode errC;
             try
             {
                 errC = _zlibStream.Inflate(flushCode);
@@ -306,21 +308,21 @@ namespace Microsoft.ManagedZLib
             }
             switch (errC)
             {
-                case ZLibNative.ErrorCode.Ok:           // progress has been made inflating
-                case ZLibNative.ErrorCode.StreamEnd:    // The end of the input stream has been reached
+                case ManagedZLib.ErrorCode.Ok:           // progress has been made inflating
+                case ManagedZLib.ErrorCode.StreamEnd:    // The end of the input stream has been reached
                     return errC;
 
-                case ZLibNative.ErrorCode.BufError:     // No room in the output buffer - inflate() can be called again with more space to continue
+                case ManagedZLib.ErrorCode.BufError:     // No room in the output buffer - inflate() can be called again with more space to continue
                     return errC;
 
-                case ZLibNative.ErrorCode.MemError:     // Not enough memory to complete the operation
+                case ManagedZLib.ErrorCode.MemError:     // Not enough memory to complete the operation
                     throw new ZLibException("ZLibErrorNotEnoughMemory - The underlying compression routine could not reserve sufficient memory.", 
                         "inflate_", (int)errC, _zlibStream.GetErrorMessage());
 
-                case ZLibNative.ErrorCode.DataError:    // The input data was corrupted (input stream not conforming to the zlib format or incorrect check value)
+                case ManagedZLib.ErrorCode.DataError:    // The input data was corrupted (input stream not conforming to the zlib format or incorrect check value)
                     throw new InvalidDataException("UnsupportedCompression - The archive entry was compressed using an unsupported compression method.");
 
-                case ZLibNative.ErrorCode.StreamError:  //the stream structure was inconsistent (for example if next_in or next_out was NULL),
+                case ManagedZLib.ErrorCode.StreamError:  //the stream structure was inconsistent (for example if next_in or next_out was NULL),
                     throw new ZLibException("ZLibErrorInconsistentStream - The stream state of the underlying compression routine is inconsistent.",
                         "inflate_", (int)errC, _zlibStream.GetErrorMessage());
 
@@ -340,7 +342,7 @@ namespace Microsoft.ManagedZLib
             lock (SyncLock)
             {
                 _zlibStream.AvailIn = 0;
-                _zlibStream.NextIn = ZLibNative.ZNullPtr;
+                _zlibStream.NextIn = ManagedZLib.ZNullPtr;
                 _inputBufferHandle.Dispose();
             }
         }

@@ -4,7 +4,7 @@
 using System;
 using System.IO;
 using System.Reflection.Metadata;
-using System.Runtime.InteropServices;
+//Vivi's notes> Taking out the InteropServices lib because we're not using PInvokes anymore
 
 namespace Microsoft.ManagedZLib;
 
@@ -15,8 +15,21 @@ namespace Microsoft.ManagedZLib;
 /// 
 /// See also: How to choose a compression level (in comments to <code>CompressionLevel</code>.
 /// </summary>
-public class ManagedZLib
+internal static partial class ManagedZLib
 {
+    //Vivi's notes(ES):Es justo y necesario (tener una estructura para ZStream)
+    //aunque si requiere un formato mas complejo que ints, tal vez sea necesario
+    //usar la clase ManagedZLib.ZStream -- else, hay que borrarla (ta vacia so far)
+    internal struct ZStream  //Aunque, checar ZLibStream para ver si los metodos de al final se pueden unificar
+    {
+        internal byte[] nextIn;  //Bytef    *next_in;  /* next input byte */
+        internal byte[] nextOut; //Bytef    *next_out; /* next output byte should be put there */
+
+        internal String msg;     //char     *msg;      /* last error message, NULL if no error */
+
+        internal uint availIn;   //uInt     avail_in;  /* number of bytes available at next_in */
+        internal uint availOut;  //uInt     avail_out; /* remaining free space at next_out */
+    }
     public static bool ReturnTrue => true; //This is just for the unit test example
 
     public enum FlushCode : int //Vivi's notes: For knowing how much and when to produce output
@@ -37,6 +50,15 @@ public class ManagedZLib
         BufError = -5,
         VersionError = -6
     }
+    // Vivi's notes> Tengo que copiar el summary de este enum
+    public enum CompressionLevel : int
+    {
+        NoCompression = 0,
+        BestSpeed = 1,
+        DefaultCompression = -1,
+        BestCompression = 9
+    }
+
     /// <summary>
     /// <p><strong>From the ZLib manual:</strong></p>
     /// <p><code>CompressionStrategy</code> is used to tune the compression algorithm.<br />
@@ -129,7 +151,7 @@ public class ManagedZLib
     /// <code>false</code>, which can for instance happen if the underlying ZLib <code>XxxxEnd</code>
     /// routines return an failure error code.
     /// </summary>
-    public sealed class ZLibStreamHandle : SafeHandle
+    public sealed class ZLibStreamHandle //Vivi's notes: Took off the inheritance part, I elaborate bellow on why
     {
         /// <summary>
         ///  ----------------------Vivi's notes>
@@ -138,98 +160,62 @@ public class ManagedZLib
         /// This states might not be necessary anymore.
         /// </summary>
         public enum State { NotInitialized, InitializedForDeflate, InitializedForInflate, Disposed }
-        
+
+        // Vivi's notes>
         //Took of all the overrides related to pointers behavior and the state init methods
+        // Discovered all the implementations/methods related to ZLibStreamHandle: SafeHandle
+        //which is related to pointers handling
+        //In this new managed implementation PTRs are no longer be used
+        // THis whole inheritance (class inherits from SafeHandle) might be unnecessary
+        //Maybe we just need to use regular methods.
+        //
+        //I'm still considering returning errors because of the logic behind of the algorithm
 
-
-        protected override bool ReleaseHandle() =>
-            InitializationState switch
-            {
-                State.NotInitialized => true,
-                State.InitializedForDeflate => (DeflateEnd() == ErrorCode.Ok),
-                State.InitializedForInflate => (InflateEnd() == ErrorCode.Ok),
-                State.Disposed => true,
-                _ => false,  // This should never happen. Did we forget one of the State enum values in the switch?
-            };
-
-        public IntPtr NextIn
+        //Vivi's notes: Not unsafe anymore because there are no ptrs being handled
+        public ErrorCode DeflateInit2_(CompressionLevel level, int windowBits, int memLevel, CompressionStrategy strategy)
         {
-            get { return _zStream.nextIn; }
-            set { _zStream.nextIn = value; }
-        }
-
-        public uint AvailIn
-        {
-            get { return _zStream.availIn; }
-            set { _zStream.availIn = value; }
-        }
-
-        public IntPtr NextOut
-        {
-            get { return _zStream.nextOut; }
-            set { _zStream.nextOut = value; }
-        }
-
-        public uint AvailOut
-        {
-            get { return _zStream.availOut; }
-            set { _zStream.availOut = value; }
-        }
-
-        private void EnsureNotDisposed()
-        {
-            ObjectDisposedException.ThrowIf(InitializationState == State.Disposed, this);
+        //Vivi's notes: Kept notation for readiness
+        return ErrorCode.Ok; //errorCode is an enum - this (int = 0) means Ok
         }
 
 
-        private void EnsureState(State requiredState)
+        public ErrorCode Deflate(FlushCode flush)
         {
-            if (InitializationState != requiredState)
-                throw new InvalidOperationException("InitializationState != " + requiredState.ToString());
+            return ErrorCode.Ok;
         }
 
 
-        public unsafe ErrorCode DeflateInit2_(CompressionLevel level, int windowBits, int memLevel, CompressionStrategy strategy)
+        public ErrorCode DeflateEnd()
         {
-            return new ZLibStreamHandle().ErrorCode.Ok; //errorCode is an enum - this means Ok
+            return ErrorCode.Ok;
+        }
+
+        public ErrorCode InflateInit2_(int windowBits)
+        {
+            return ErrorCode.Ok;
         }
 
 
-        public unsafe ErrorCode Deflate(FlushCode flush)
+        public ErrorCode Inflate(FlushCode flush)
         {
-            return 0;
+            return ErrorCode.Ok;
         }
 
 
-        public unsafe ErrorCode DeflateEnd()
+        public ErrorCode InflateEnd()
         {
-            return 0;
+            return ErrorCode.Ok;
         }
 
-
-        public unsafe ErrorCode InflateInit2_(int windowBits)
-        {
-            return 0;
-        }
-
-
-        public unsafe ErrorCode Inflate(FlushCode flush)
-        {
-            return 0;
-        }
-
-
-        public unsafe ErrorCode InflateEnd()
-        {
-            return 0;
-        }
-
-        // COmo no se usa ptrs ni Pinvoke, no hay necesidad de usar Marshall
-
+        // Vivi's notes(ES): Como no se usa ptrs ni Pinvoke, no hay necesidad de usar Marshall
     }
+    //Vivi's notes: 
+    // Took off these methods cuz they were using the methods above for doing the most importance stuff and just adding
+    // things related to safeHandle -- related to PTRs
 
+    // -----------------------------------Vivi's note> I'll keep the wrapper for later returning a ZStream
     public static ErrorCode CreateZLibStreamForDeflate(out ZLibStreamHandle zLibStreamHandle, CompressionLevel level,
-        int windowBits, int memLevel, CompressionStrategy strategy)
+    int windowBits, int memLevel, CompressionStrategy strategy)
     {
         zLibStreamHandle = new ZLibStreamHandle();
         return zLibStreamHandle.DeflateInit2_(level, windowBits, memLevel, strategy);
