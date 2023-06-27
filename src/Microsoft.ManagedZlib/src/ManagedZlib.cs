@@ -4,6 +4,8 @@
 using System;
 using System.IO;
 using System.Reflection.Metadata;
+using static Microsoft.ManagedZLib.ManagedZLib;
+using System.Runtime.InteropServices;
 //Vivi's notes> Taking out the InteropServices lib because we're not using PInvokes anymore
 
 namespace Microsoft.ManagedZLib;
@@ -15,7 +17,7 @@ namespace Microsoft.ManagedZLib;
 /// 
 /// See also: How to choose a compression level (in comments to <code>CompressionLevel</code>.
 /// </summary>
-internal static partial class ManagedZLib
+internal static class ManagedZLib
 {
     //Vivi's notes(ES):Es justo y necesario (tener una estructura para ZStream)
     //aunque si requiere un formato mas complejo que ints, tal vez sea necesario
@@ -159,7 +161,7 @@ internal static partial class ManagedZLib
         /// before being called for deflate, inflate or so.
         /// This states might not be necessary anymore.
         /// </summary>
-        public enum State { NotInitialized, InitializedForDeflate, InitializedForInflate, Disposed }
+        public enum State { NotInitialized, InitializedForDeflate, InitializedForInflate, Disposed } //Vivi's notes> Maybe se use para diagnostics luego
 
         // Vivi's notes>
         //Took of all the overrides related to pointers behavior and the state init methods
@@ -170,6 +172,8 @@ internal static partial class ManagedZLib
         //Maybe we just need to use regular methods.
         //
         //I'm still considering returning errors because of the logic behind of the algorithm
+
+        private ZStream _zStream;
 
         //Vivi's notes: Not unsafe anymore because there are no ptrs being handled
         public ErrorCode DeflateInit2_(CompressionLevel level, int windowBits, int memLevel, CompressionStrategy strategy)
@@ -207,13 +211,17 @@ internal static partial class ManagedZLib
             return ErrorCode.Ok;
         }
 
-        // Vivi's notes(ES): Como no se usa ptrs ni Pinvoke, no hay necesidad de usar Marshall
+        // Vivi's notes(ES): Como no se usa ptrs ni Pinvoke, no hay necesidad de usar Marshal
+        // pero mantendremos checar que el string no sea nulo 
+        // This can work even after XxflateEnd().
+        public string GetErrorMessage() => _zStream.msg != null ? _zStream.msg! : string.Empty; //-- basic invalid str check
     }
     //Vivi's notes: 
     // Took off these methods cuz they were using the methods above for doing the most importance stuff and just adding
     // things related to safeHandle -- related to PTRs
 
     // -----------------------------------Vivi's note> I'll keep the wrapper for later returning a ZStream
+    // Posibilidad de unificacion con ZLibStream
     public static ErrorCode CreateZLibStreamForDeflate(out ZLibStreamHandle zLibStreamHandle, CompressionLevel level,
     int windowBits, int memLevel, CompressionStrategy strategy)
     {

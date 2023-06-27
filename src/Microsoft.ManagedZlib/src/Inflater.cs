@@ -216,7 +216,9 @@ namespace Microsoft.ManagedZLib
             if (!_isDisposed)
             {
                 if (disposing)
-                    _zlibStream.Dispose();
+                    //_zlibStream.Dispose();
+                    // Vivi's note: Queda por ver como implementar los handles 
+                    //y por ende, cómo hacer el dispose correcto de ellos
 
                 if (IsInputBufferHandleAllocated)
                     DeallocateInputBufferHandle();
