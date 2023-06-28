@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -18,9 +19,11 @@ namespace Microsoft.ManagedZLib;
 /// </summary>
 internal sealed class Inflater : IDisposable
 {
-    public struct BufferHandle : IDisposable
+    public struct BufferHandle
     {
         int Handle;
+        //Se ocupara struct de input
+        //Struct de output
         //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
         //public void Dispose();
     }
@@ -66,45 +69,48 @@ internal sealed class Inflater : IDisposable
     /// </summary>
     public bool Finished() => _finished; //Este tipo de flags son importantes aunque maybe desde otra perspectiva(no ptrs)
 
+    // Vivi's notes> This is a snaity check
+    // For checking the value are within the expected change
     //Checking not to pass a null output buffer 
-    public bool Inflate(byte[] bytes)
-    {
+    public bool Inflate(byte[] buffer) //Vivi's notes> Toma un arreglo* de 1
+    {//Vivi's notes> Provisional change (instead of byte[] it should be Span<byte>)
+     //just for the project to compile
+        int bytesRead = InflateVerified(buffer, 1);
+        Debug.Assert(bytesRead == 0 || bytesRead == 1);
         //Validating output buffer is not null
-        return false;
+        return bytesRead != 0;
     }
+    //Vivi's notes: To check later - I think I saw a repetitive overload (Update: This is it)
+    //public int Inflate(Span<byte> destination)
+    //{
+    //    // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
+    //    if (destination.Length == 0)
+    //        return 0;
 
-    public unsafe int Inflate(byte[] bytes, int offset, int length)
-    {
-        //El bufPtr de antes puede ser solo un int con la posicion
-        // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
-        if (length == 0)
-            return 0;
-
-        Debug.Assert(null != bytes, "Can't pass in a null output buffer!");
-        byte[] buffer = bytes;
-        // Vivi's notes> De alguna manera tenemos que pasar el buffer y la localidad desde la que 
-        //tiene que verificar
-        // en C++ solo se haria refernecia al ptr y una suma aritmetica con el offset para movernos
-        //a esa posicion, pero c# no acepta eso y de todas formas no queremos usar pointers
-        return InflateVerified(buffer, length); //Necesita una posicion (localidad) de inicio + length
-        
-    }
-
-    //Vivi's notes: We'll use span instead of pointer to bytes
-    //or just a different structure
-    public unsafe int Inflate(Span<byte> destination)
+    //    return InflateVerified(destination, destination.Length);
+    //}
+    public int Inflate(Span<byte> destination) 
     {
         // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
         if (destination.Length == 0)
             return 0;
 
-        fixed (byte* bufPtr = &MemoryMarshal.GetReference(destination))
-        {
-            return InflateVerified(bufPtr, destination.Length);
-        }
+        return InflateVerified(destination, destination.Length);
     }
 
-    public int InflateVerified(byte[] bufferBytes, int length)
+    public int Inflate(Span<byte> bytes, int offset, int length)
+    {
+        // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
+        if (length == 0)
+            return 0;
+
+        Debug.Assert(null != bytes, "Can't pass in a null output buffer!");
+
+        // We pass the slice base off the offset given
+        return InflateVerified(bytes.Slice(offset, length), length); //Necesita una posicion (localidad) de inicio + length    
+    }
+
+    public int InflateVerified(Span<byte> bufferBytes, int length)
     {
         // State is valid; attempt inflation
         try
@@ -140,7 +146,7 @@ internal sealed class Inflater : IDisposable
         }
     }
 
-    private void ReadOutput(byte[] buffer, int length, out int bytesRead)
+    private void ReadOutput(Span<byte> buffer, int length, out int bytesRead)
     {
         if (ReadInflateOutput(buffer, length, ManagedZLib.FlushCode.NoFlush, out bytesRead) == ManagedZLib.ErrorCode.StreamEnd)
         {
@@ -254,13 +260,13 @@ internal sealed class Inflater : IDisposable
     }
 
     // Dispose wrapper
-    public void Dispose()
+    public void Dispose() //Vivi's notes: Si se usan managed versions, no seria necesario hacer dispose explicito
     {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
 
-    ~Inflater()
+    ~Inflater() //Vivi's notes: Si se usan managed versions, no seria necesario hacer dispose explicito
     {
         Dispose(false);
     }
@@ -307,14 +313,14 @@ internal sealed class Inflater : IDisposable
     /// <summary>
     /// Wrapper around the ZLib inflate function, configuring the stream appropriately.
     /// </summary>
-    private ManagedZLib.ErrorCode ReadInflateOutput(byte[] buffer, int length, ManagedZLib.FlushCode flushCode, out int bytesRead)
+    private ManagedZLib.ErrorCode ReadInflateOutput(Span<byte> buffer, int length, ManagedZLib.FlushCode flushCode, out int bytesRead)
     {
         lock (SyncLock)
         {
-            _zlibStream.NextOut = buffer; // Vivi's note> Checar luego porque no se si lo dejare de tipo byte[]
+            _zlibStream.NextOut = buffer.ToArray(); // Vivi's note> Check later if it's necessary to change the byte[] type
             _zlibStream.AvailOut = (uint)length;
 
-            ManagedZLib.ErrorCode errC = Inflate(flushCode); //Vivi's notes: Entry a managedZLib
+            ManagedZLib.ErrorCode errC = Inflate(flushCode); //Vivi's notes: Entry to managedZLib
             bytesRead = length - (int)_zlibStream.AvailOut;
 
             return errC;

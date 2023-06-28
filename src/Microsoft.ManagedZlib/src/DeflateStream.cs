@@ -229,12 +229,12 @@ public partial class DeflateStream : Stream
     {
         EnsureDecompressionMode();
         EnsureNotDisposed();
-
+        // Vivi's notes> Sanity check - (ES) maybe no haya que crea un arreglo para el byte
         // Try to read a single byte from zlib without allocating an array, pinning an array, etc.
         // If zlib doesn't have any data, fall back to the base stream implementation, which will do that.
-        byte b;
+        byte[] b = new byte[1];
         Debug.Assert(_inflater != null);
-        return _inflater.Inflate(out b) ? b : base.ReadByte();
+        return _inflater.Inflate(b) ? b[0] : base.ReadByte();
     }
 
     public override int Read(byte[] buffer, int offset, int count)
