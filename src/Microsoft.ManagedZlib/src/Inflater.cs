@@ -13,20 +13,20 @@ using System.Runtime.InteropServices;
 using System.Security;
 
 namespace Microsoft.ManagedZLib;
+public struct BufferHandle
+{
+    int Handle;
+    //Se ocupara struct de input
+    //Struct de output
+    //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
+    //public void Dispose();
+}
 
 /// <summary>
 /// Provides a wrapper around the ZLib decompression API.
 /// </summary>
 internal sealed class Inflater : IDisposable
 {
-    public struct BufferHandle
-    {
-        int Handle;
-        //Se ocupara struct de input
-        //Struct de output
-        //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
-        //public void Dispose();
-    }
 
     private const int MinWindowBits = -15;              // WindowBits must be between -8..-15 to ignore the header, 8..15 for
     private const int MaxWindowBits = 47;               // zlib headers, 24..31 for GZip headers, or 40..47 for either Zlib or GZip
@@ -175,30 +175,31 @@ internal sealed class Inflater : IDisposable
 
         lock (SyncLock)
         {
-            byte[] nextInPtr = _zlibStream.NextIn;
-            Span<byte> nextInPointer = nextInPtr;
+            byte[] nextIn = _zlibStream.NextIn;
             uint nextAvailIn = _zlibStream.AvailIn;
 
             //-------------------------------------------------Vivi's notes(ES):
             //Help> Se que C# span no soporta log aritmetica como los pointer de c++
-            // Como traduzco esto? *(b+1)
+            // Como traduzco esto? *(b+1) ---> Yo creo que esto es solo devolver la localidad en esas posiciones
+            //                                                                                       LA 0 Y LA 1
             // No creo que esto sea equivalente> MemoryMarshal.GetReference(nextInPointer) + 1
             // lo dejare pa que ocmpile pero hay que checarlo para la logica
 
             // Check the leftover bytes to see if they start with he gzip header ID bytes
-            if (MemoryMarshal.GetReference(nextInPointer) != ManagedZLib.GZip_Header_ID1 || (nextAvailIn > 1 && MemoryMarshal.GetReference(nextInPointer) + 1 != ManagedZLib.GZip_Header_ID2))
+            if (nextIn[0] != ManagedZLib.GZip_Header_ID1 || (nextAvailIn > 1 && nextIn[1] != ManagedZLib.GZip_Header_ID2))
             {
                 return true;
             }
-            
+
             // Trash our existing zstream.
-            //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
+            //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
 
             // Create a new zstream
-            InflateInit(_windowBits);
+            InflateInit(_windowBits); //Vivi's notes (ES): Este estar por implementarse, me imagino que aqui se 
+                             // espera hacer el cambio del anterior nextIn al nuevo, abajo solo se hace la reasignacion
 
             // SetInput on the new stream to the bits remaining from the last stream
-            _zlibStream.NextIn = nextInPtr;
+            _zlibStream.NextIn = nextIn;
             _zlibStream.AvailIn = nextAvailIn;
             _finished = false;
         }

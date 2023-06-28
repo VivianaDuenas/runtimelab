@@ -17,7 +17,7 @@ namespace Microsoft.ManagedZLib
     internal sealed class Deflater : IDisposable
     {
         private readonly ManagedZLib.ZLibStreamHandle _zlibStream;
-        private MemoryHandle _inputBufferHandle;
+        private BufferHandle _inputBufferHandle;
         private bool _isDisposed;
         private const int minWindowBits = -15;  // WindowBits must be between -8..-15 to write no header, 8..15 for a
         private const int maxWindowBits = 31;   // zlib header, or 24..31 for a GZip header
@@ -115,7 +115,7 @@ namespace Microsoft.ManagedZLib
             if (!_isDisposed)
             {
                 if (disposing)
-                    _zlibStream.Dispose();
+                   //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
 
                 DeallocateInputBufferHandle();
                 _isDisposed = true;
@@ -124,7 +124,7 @@ namespace Microsoft.ManagedZLib
 
         public bool NeedsInput() => 0 == _zlibStream.AvailIn;
 
-        internal unsafe void SetInput(ReadOnlyMemory<byte> inputBuffer)
+        internal void SetInput(ReadOnlyMemory<byte> inputBuffer)
         {
             Debug.Assert(NeedsInput(), "We have something left in previous input!");
             if (0 == inputBuffer.Length)
