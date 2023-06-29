@@ -13,14 +13,7 @@ using System.Runtime.InteropServices;
 using System.Security;
 
 namespace Microsoft.ManagedZLib;
-public struct BufferHandle
-{
-    int Handle;
-    //Se ocupara struct de input
-    //Struct de output
-    //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
-    //public void Dispose();
-}
+
 
 /// <summary>
 /// Provides a wrapper around the ZLib decompression API.
@@ -39,7 +32,7 @@ internal sealed class Inflater : IDisposable
 
     //Vivi's note> Todo lo que vaya con esta struct se comentará a menos que se ocupe en algo importante, mientras
     // decido que hacer (y como hacerlo) con la nueva estructura de handle
-    private BufferHandle _inputBufferHandle = default;            // The handle to the buffer that provides input to _zlibStream
+    private ManagedZLib.BufferHandle _inputBufferHandle = default;            // The handle to the buffer that provides input to _zlibStream
     private readonly long _uncompressedSize;
     private long _currentInflatedCount;
 
@@ -391,5 +384,5 @@ internal sealed class Inflater : IDisposable
     // como para verificar que los datos sí se estan pasando
     // por lo pronto lo haré una flag booleana x, pero es un chequeo importante
     //private unsafe bool IsInputBufferHandleAllocated => _inputBufferHandle.Pointer != default;
-    private bool IsInputBufferHandleAllocated => _inputBufferHandle.Equals(default(BufferHandle));
+    private bool IsInputBufferHandleAllocated => _inputBufferHandle.Equals(default(ManagedZLib.BufferHandle));
 }

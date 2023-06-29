@@ -17,7 +17,7 @@ namespace Microsoft.ManagedZLib
     internal sealed class Deflater : IDisposable
     {
         private readonly ManagedZLib.ZLibStreamHandle _zlibStream;
-        private BufferHandle _inputBufferHandle;
+        private ManagedZLib.BufferHandle _inputBufferHandle;
         private bool _isDisposed;
         private const int minWindowBits = -15;  // WindowBits must be between -8..-15 to write no header, 8..15 for a
         private const int maxWindowBits = 31;   // zlib header, or 24..31 for a GZip header
@@ -114,8 +114,9 @@ namespace Microsoft.ManagedZLib
         {
             if (!_isDisposed)
             {
-                if (disposing)
-                   //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
+                if (disposing) {
+                    //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
+                }
 
                 DeallocateInputBufferHandle();
                 _isDisposed = true;
@@ -134,17 +135,19 @@ namespace Microsoft.ManagedZLib
 
             lock (SyncLock)
             {
-                _inputBufferHandle = inputBuffer.Pin();
+                //Vivi's note(ES) > Aun hay que ver cómo será la estructura para el Handle
+                //Aqui como que pide la referencia al arreglo para que lo tenga el handle (de manera segura con Memory) y el ZStream (NextIn)
+                // _inputBufferHandle.tempHandle = inputBuffer.Pin();                                             
 
-                _zlibStream.NextIn = (IntPtr)_inputBufferHandle.Pointer;
+                _zlibStream.NextIn = _inputBufferHandle.Buffer; 
                 _zlibStream.AvailIn = (uint)inputBuffer.Length;
             }
         }
-
-        internal unsafe void SetInput(byte* inputBufferPtr, int count)
+        //Vivi's notes> This overloading might be repetitive
+        internal void SetInput(Span<byte> inputBuffer, int count)
         {
             Debug.Assert(NeedsInput(), "We have something left in previous input!");
-            Debug.Assert(inputBufferPtr != null);
+            Debug.Assert(inputBuffer != null);
 
             if (count == 0)
             {
@@ -153,7 +156,7 @@ namespace Microsoft.ManagedZLib
 
             lock (SyncLock)
             {
-                _zlibStream.NextIn = (IntPtr)inputBufferPtr;
+                _zlibStream.NextIn = inputBuffer.ToArray(); //Vivi's notes> We're picking 
                 _zlibStream.AvailIn = (uint)count;
             }
         }
@@ -179,22 +182,19 @@ namespace Microsoft.ManagedZLib
             }
         }
 
-        private unsafe ZErrorCode ReadDeflateOutput(byte[] outputBuffer, ZFlushCode flushCode, out int bytesRead)
+        private ZErrorCode ReadDeflateOutput(byte[] outputBuffer, ZFlushCode flushCode, out int bytesRead)
         {
             Debug.Assert(outputBuffer?.Length > 0);
 
             lock (SyncLock)
             {
-                fixed (byte* bufPtr = &outputBuffer[0])
-                {
-                    _zlibStream.NextOut = (IntPtr)bufPtr;
-                    _zlibStream.AvailOut = (uint)outputBuffer.Length;
+                _zlibStream.NextOut = outputBuffer;
+                _zlibStream.AvailOut = (uint)outputBuffer.Length;
 
-                    ZErrorCode errC = Deflate(flushCode);
-                    bytesRead = outputBuffer.Length - (int)_zlibStream.AvailOut;
+                ZErrorCode errC = Deflate(flushCode);
+                bytesRead = outputBuffer.Length - (int)_zlibStream.AvailOut;
 
-                    return errC;
-                }
+                return errC;
             }
         }
 
@@ -229,8 +229,11 @@ namespace Microsoft.ManagedZLib
             lock (SyncLock)
             {
                 _zlibStream.AvailIn = 0;
-                _zlibStream.NextIn = ManagedZLib.ZNullPtr;
-                _inputBufferHandle.Dispose();
+                Array.Clear(_zlibStream.NextIn, 0, _zlibStream.NextIn.Length); // Vivi's notes(ES)> Aqui habia un _zlibStream = ZNullPtr.IntPtr.Zero
+                //_inputBufferHandle.Dispose(); Vivi's note> Because we haven't decided on a struct yet
+                // We aren't 100% if it's going to need a dispose()
+                // Since we're expecting for everything to be "managed" the possibility to not having it and reuse
+                //other managed structs is still open
             }
         }
 

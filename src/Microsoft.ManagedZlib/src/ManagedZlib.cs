@@ -35,6 +35,22 @@ internal static class ManagedZLib
     //-------------Vivi's notes> Check, ZStream properties and definitions
     public static bool ReturnTrue => true; //This is just for the unit test example
 
+    public struct BufferHandle
+    {
+        // Vivi's note> If we decide we're creating a struct
+        // then this, instad of being public, would be like ZStream
+        // internal and later their properties implemented in a secure class
+        int Handle;
+        //Vivi's notes> I think this is repetitive (We should use either Memory or byte[])
+        //public Memory<byte> tempHandle;
+        public byte[] Buffer;
+
+        //Se ocupara struct de input
+        //Struct de output
+        //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
+        //public void Dispose();
+    }
+
     public enum FlushCode : int //Vivi's notes: For knowing how much and when to produce output
     {
         NoFlush = 0,
