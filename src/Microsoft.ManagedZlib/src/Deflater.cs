@@ -17,7 +17,7 @@ namespace Microsoft.ManagedZLib
     internal sealed class Deflater : IDisposable
     {
         private readonly ManagedZLib.ZLibStreamHandle _zlibStream;
-        private ManagedZLib.BufferHandle _inputBufferHandle;
+        //Vivi's note> MemoryHandle was for managing the pointers. Gone now
         private bool _isDisposed;
         private const int minWindowBits = -15;  // WindowBits must be between -8..-15 to write no header, 8..15 for a
         private const int maxWindowBits = 31;   // zlib header, or 24..31 for a GZip header
@@ -125,7 +125,7 @@ namespace Microsoft.ManagedZLib
 
         public bool NeedsInput() => 0 == _zlibStream.AvailIn;
 
-        internal void SetInput(ReadOnlyMemory<byte> inputBuffer)
+        internal void SetInput(ReadOnlySpan<byte> inputBuffer)
         {
             Debug.Assert(NeedsInput(), "We have something left in previous input!");
             if (0 == inputBuffer.Length)
@@ -137,9 +137,9 @@ namespace Microsoft.ManagedZLib
             {
                 //Vivi's note(ES) > Aun hay que ver cómo será la estructura para el Handle
                 //Aqui como que pide la referencia al arreglo para que lo tenga el handle (de manera segura con Memory) y el ZStream (NextIn)
-                // _inputBufferHandle.tempHandle = inputBuffer.Pin();                                             
+                // _inputBufferHandle.tempHandle = inputBuffer.Pin();    //Maybe haya que eliminar la struct de Handle                                         
 
-                _zlibStream.NextIn = _inputBufferHandle.Buffer; 
+                _zlibStream.NextIn = inputBuffer.ToArray(); 
                 _zlibStream.AvailIn = (uint)inputBuffer.Length;
             }
         }

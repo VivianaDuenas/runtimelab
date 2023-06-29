@@ -11,6 +11,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Microsoft.ManagedZLib;
 
@@ -28,15 +29,17 @@ internal sealed class Inflater : IDisposable
     private bool _finished;                             // Whether the end of the stream has been reached
     private bool _isDisposed;                           // Prevents multiple disposals
     private readonly int _windowBits;                   // The WindowBits parameter passed to Inflater construction
-    private ManagedZLib.ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream
+    private ManagedZLib.ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream -- Vivi's note: TBD if necessary
 
-    //Vivi's note> Todo lo que vaya con esta struct se comentará a menos que se ocupe en algo importante, mientras
-    // decido que hacer (y como hacerlo) con la nueva estructura de handle
-    private ManagedZLib.BufferHandle _inputBufferHandle = default;            // The handle to the buffer that provides input to _zlibStream
+    //Vivi's note> This structure, if necessary, will be re-design because before it was implemented
+    // for pointer handling. - On the meantime there's a rough struct replacing the old one in ManagedZLib- 
+    // I suspect is not necessary at all and was just for aligning c#'s behavior to the c library
+    // [Commented old code] private ManagedZLib.BufferHandle _inputBufferHandle = default;            // The handle to the buffer that provides input to _zlibStream
     private readonly long _uncompressedSize;
     private long _currentInflatedCount;
 
     private object SyncLock => this;                    // Used to make writing to unmanaged structures atomic
+    public int AvailableOutput => (int)_zlibStream.AvailOut; //Vivi's notes> If in ZStream we decide to have Spans, this might not be needed anymore
 
     /// <summary>
     /// Initialized the Inflater with the given windowBits size
@@ -52,73 +55,46 @@ internal sealed class Inflater : IDisposable
         _uncompressedSize = uncompressedSize;
     }
 
-    // Vivi's note> Took AvailOut pointer out
-    //This is important for the knowing the state of the output buffer
-    // BUT further investigation needed for how (best way) to implement it in the managed version
-    //public int AvailableOutput => (int)_zlibStream.AvailOut;
-
     /// <summary>
     /// Returns true if the end of the stream has been reached.
     /// </summary>
     public bool Finished() => _finished; //Este tipo de flags son importantes aunque maybe desde otra perspectiva(no ptrs)
 
-    // Vivi's notes> This is a snaity check
-    // For checking the value are within the expected change
-    //Checking not to pass a null output buffer 
-    public bool Inflate(byte[] buffer) //Vivi's notes> Toma un arreglo* de 1
-    {//Vivi's notes> Provisional change (instead of byte[] it should be Span<byte>)
-     //just for the project to compile
-        int bytesRead = InflateVerified(buffer, 1);
+    // Vivi's notes> If there's s need of a subset of the buffer,
+    // instead of passing a length and offset along with the buffer (like before)
+    // You would just slice it from he caller like this: spanUsed.Slice(offset, length)
+    public int Inflate(Span<byte> buffer) 
+    {
+        int bytesRead = InflateVerified(buffer);
+
+        // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
+        if (buffer.Length == 0)
+            return 0;
+
+        //Vivi's notes> Sanity checks
+        Debug.Assert(buffer != null, "Can't pass in a null output buffer!");
         Debug.Assert(bytesRead == 0 || bytesRead == 1);
-        //Validating output buffer is not null
-        return bytesRead != 0;
-    }
-    //Vivi's notes: To check later - I think I saw a repetitive overload (Update: This is it)
-    //public int Inflate(Span<byte> destination)
-    //{
-    //    // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
-    //    if (destination.Length == 0)
-    //        return 0;
 
-    //    return InflateVerified(destination, destination.Length);
-    //}
-    public int Inflate(Span<byte> destination) 
-    {
-        // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
-        if (destination.Length == 0)
-            return 0;
-
-        return InflateVerified(destination, destination.Length);
+        return bytesRead;//bytesRead != 0 in the caller that expects a bool
     }
 
-    public int Inflate(Span<byte> bytes, int offset, int length)
-    {
-        // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
-        if (length == 0)
-            return 0;
-
-        Debug.Assert(null != bytes, "Can't pass in a null output buffer!");
-
-        // We pass the slice base off the offset given
-        return InflateVerified(bytes.Slice(offset, length), length); //Necesita una posicion (localidad) de inicio + length    
-    }
-
-    public int InflateVerified(Span<byte> bufferBytes, int length)
+    public int InflateVerified(Span<byte> bufferBytes)
     {
         // State is valid; attempt inflation
-        try
-        {
+        // -- Vivi's notes: This State thing (Enum) is in ManagedZLib and I'm not sure if is needed
+        // It might be informative but was mainly involved in the use of pointer before
             int bytesRead = 0;
             if (_uncompressedSize == -1)
             {
-                ReadOutput(bufferBytes, length, out bytesRead);
+                //Vivi's notes> Here we could pass a Span and take away the length
+                ReadOutput(bufferBytes, bufferBytes.Length, out bytesRead);
             }
             else
             {
                 if (_uncompressedSize > _currentInflatedCount)
                 {
-                    length = (int)Math.Min(length, _uncompressedSize - _currentInflatedCount);
-                    ReadOutput(bufferBytes, length, out bytesRead);
+                    int newLength = (int)Math.Min(bufferBytes.Length, _uncompressedSize - _currentInflatedCount);
+                    ReadOutput(bufferBytes, newLength, out bytesRead); //Vivi's notes> Here you would pass a slice of the Span
                     _currentInflatedCount += bytesRead;
                 }
                 else
@@ -128,22 +104,14 @@ internal sealed class Inflater : IDisposable
                 }
             }
             return bytesRead;
-        }
-        finally
-        {
-            // Before returning, make sure to release input buffer if necessary:
-            if (0 == _zlibStream.AvailIn && IsInputBufferHandleAllocated)
-            {
-                DeallocateInputBufferHandle();
-            }
-        }
     }
 
     private void ReadOutput(Span<byte> buffer, int length, out int bytesRead)
     {
+        //Vivi's notes> Here we will pass a Span and take away the *length parameter
         if (ReadInflateOutput(buffer, length, ManagedZLib.FlushCode.NoFlush, out bytesRead) == ManagedZLib.ErrorCode.StreamEnd)
         {
-            if (!NeedsInput() && IsGzipStream() && IsInputBufferHandleAllocated)
+            if (!NeedsInput() && IsGzipStream())
             {
                 _finished = ResetStreamForLeftoverInput();
             }
@@ -164,19 +132,11 @@ internal sealed class Inflater : IDisposable
     {
         Debug.Assert(!NeedsInput());
         Debug.Assert(IsGzipStream());
-        Debug.Assert(IsInputBufferHandleAllocated);
 
         lock (SyncLock)
         {
             byte[] nextIn = _zlibStream.NextIn;
             uint nextAvailIn = _zlibStream.AvailIn;
-
-            //-------------------------------------------------Vivi's notes(ES):
-            //Help> Se que C# span no soporta log aritmetica como los pointer de c++
-            // Como traduzco esto? *(b+1) ---> Yo creo que esto es solo devolver la localidad en esas posiciones
-            //                                                                                       LA 0 Y LA 1
-            // No creo que esto sea equivalente> MemoryMarshal.GetReference(nextInPointer) + 1
-            // lo dejare pa que ocmpile pero hay que checarlo para la logica
 
             // Check the leftover bytes to see if they start with he gzip header ID bytes
             if (nextIn[0] != ManagedZLib.GZip_Header_ID1 || (nextAvailIn > 1 && nextIn[1] != ManagedZLib.GZip_Header_ID2))
@@ -185,11 +145,11 @@ internal sealed class Inflater : IDisposable
             }
 
             // Trash our existing zstream.
-            //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
+            //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet implemented
 
             // Create a new zstream
-            InflateInit(_windowBits); //Vivi's notes (ES): Este estar por implementarse, me imagino que aqui se 
-                             // espera hacer el cambio del anterior nextIn al nuevo, abajo solo se hace la reasignacion
+            InflateInit(_windowBits); //Vivi's notes: method TBD - I imagine here is where the ZStream gets modified  
+                                      // So bellow, the zLibStream vars are expected to be updated in terms of that
 
             // SetInput on the new stream to the bits remaining from the last stream
             _zlibStream.NextIn = nextIn;
@@ -211,7 +171,6 @@ internal sealed class Inflater : IDisposable
         Debug.Assert(NeedsInput(), "We have something left in previous input!");
         Debug.Assert(inputBuffer != null);
         Debug.Assert(startIndex >= 0 && count >= 0 && count + startIndex <= inputBuffer.Length);
-        Debug.Assert(!IsInputBufferHandleAllocated);
 
         SetInput(inputBuffer.AsMemory(startIndex, count));
     }
@@ -219,18 +178,12 @@ internal sealed class Inflater : IDisposable
     public void SetInput(ReadOnlyMemory<byte> inputBuffer)
     {
         Debug.Assert(NeedsInput(), "We have something left in previous input!");
-        Debug.Assert(!IsInputBufferHandleAllocated);
 
         if (inputBuffer.IsEmpty)
             return;
 
         lock (SyncLock)
         {
-            //_inputBufferHandle = inputBuffer.Pin();
-            //Vivi's note> Como no se como manejar los handles - so far se asocian con arreglos de byte
-            // pero entonces si se quedara asi, deberia aniadir un toarray BufferHandle o ver si uso eso
-            // Resumen--------------------TBD----------------------------
-            //_zlibStream.NextIn = _inputBufferHandle.ToArray; //No se como poner la memoria pinned en my byte array
             _zlibStream.AvailIn = (uint)inputBuffer.Length;
             _finished = false;
             _nonEmptyInput = true;
@@ -242,12 +195,11 @@ internal sealed class Inflater : IDisposable
         if (!_isDisposed)
         {
             if (disposing)
+            {
                 //Vivi's note: DISPOSE override OF ZSTREAM dispose method *not yet imlemented
                 // Vivi's note(ES): Queda por ver como implementar los handles 
                 //y por ende, cómo hacer el dispose correcto de ellos
-
-                if (IsInputBufferHandleAllocated)
-                DeallocateInputBufferHandle();
+            }
 
             _isDisposed = true;
         }
@@ -312,10 +264,10 @@ internal sealed class Inflater : IDisposable
         lock (SyncLock)
         {
             _zlibStream.NextOut = buffer.ToArray(); // Vivi's note> Check later if it's necessary to change the byte[] type
-            _zlibStream.AvailOut = (uint)length;
+            _zlibStream.AvailOut = (uint)buffer.Length;
 
             ManagedZLib.ErrorCode errC = Inflate(flushCode); //Vivi's notes: Entry to managedZLib
-            bytesRead = length - (int)_zlibStream.AvailOut;
+            bytesRead = buffer.Length - AvailableOutput;
 
             return errC;
         }
@@ -361,28 +313,8 @@ internal sealed class Inflater : IDisposable
         }
     }
 
-    /// <summary>
-    /// Frees the GCHandle being used to store the input buffer
-    /// Vivi's note > This is a method that's still intended for pointers
-    /// but I kept it because we do need to clean it all at the end - like a reminder
-    /// 
-    ///Maybe ater the same structure of method can be used but with different naming
-    /// </summary>
-    private void DeallocateInputBufferHandle()
-    {
-        Debug.Assert(IsInputBufferHandleAllocated);
 
-        lock (SyncLock)
-        {
-            _zlibStream.AvailIn = 0;
-            Array.Clear(_zlibStream.NextIn, 0, _zlibStream.NextIn.Length); // Vivi's notes(ES)> Aqui habia un _zlibStream = IntPtr.Zero
-            //_inputBufferHandle.Dispose();
-        }
-    }
-
-    // Vivi's notes(ES)> Esto es importante porque se usa para er si la memoria fue allocated
-    // como para verificar que los datos sí se estan pasando
-    // por lo pronto lo haré una flag booleana x, pero es un chequeo importante
-    //private unsafe bool IsInputBufferHandleAllocated => _inputBufferHandle.Pointer != default;
-    private bool IsInputBufferHandleAllocated => _inputBufferHandle.Equals(default(ManagedZLib.BufferHandle));
+    // Vivi's notes: We are not allocating memory as before,
+    // so no need for the boolean IsInputBufferHandleAllocated var that was here before
+    // Also, we're planning to use managed structs so deallocating data shouldn't be necessary
 }

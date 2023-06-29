@@ -27,6 +27,9 @@ internal static class ManagedZLib
         internal byte[] nextIn;  //Bytef    *next_in;  /* next input byte */
         internal byte[] nextOut; //Bytef    *next_out; /* next output byte should be put there */
 
+        //Vivi's notes: This is for error messages but saw in the managed part of native implementation
+        //that it's never being assign to anything
+        //(To be checked later - Maybe the info is assign directly in the native part through the pointer)
         internal String msg;     //char     *msg;      /* last error message, NULL if no error */
 
         internal uint availIn;   //uInt     avail_in;  /* number of bytes available at next_in */
@@ -35,21 +38,21 @@ internal static class ManagedZLib
     //-------------Vivi's notes> Check, ZStream properties and definitions
     public static bool ReturnTrue => true; //This is just for the unit test example
 
-    public struct BufferHandle
-    {
-        // Vivi's note> If we decide we're creating a struct
-        // then this, instad of being public, would be like ZStream
-        // internal and later their properties implemented in a secure class
-        int Handle;
-        //Vivi's notes> I think this is repetitive (We should use either Memory or byte[])
-        //public Memory<byte> tempHandle;
-        public byte[] Buffer;
+    //public struct BufferHandle
+    //{
+    //    // Vivi's note> If we decide we're creating a struct
+    //    // then this, instad of being public, would be like ZStream
+    //    // internal and later their properties implemented in a secure class
+    //    int Handle;
+    //    //Vivi's notes> I think this is repetitive (We should use either Memory or byte[])
+    //    //public Memory<byte> tempHandle;
+    //    public byte[] Buffer;
 
-        //Se ocupara struct de input
-        //Struct de output
-        //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
-        //public void Dispose();
-    }
+    //    //Se ocupara struct de input
+    //    //Struct de output
+    //    //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
+    //    //public void Dispose();
+    //}
 
     public enum FlushCode : int //Vivi's notes: For knowing how much and when to produce output
     {
@@ -176,19 +179,20 @@ internal static class ManagedZLib
         ///  ----------------------Vivi's notes>
         /// The pointers(zalloc,zfree,opaque - for using malloc and stuff in c++ algorithm) usually need to be initialized
         /// before being called for deflate, inflate or so.
-        /// This states might not be necessary anymore.
+        /// This states might not be necessary anymore (nor to inherit from SafeHandle).
         /// </summary>
         public enum State { NotInitialized, InitializedForDeflate, InitializedForInflate, Disposed } //Vivi's notes> Maybe se use para diagnostics luego
 
         // Vivi's notes>
-        //Took of all the overrides related to pointers behavior and the state init methods
-        // Discovered all the implementations/methods related to ZLibStreamHandle: SafeHandle
-        //which is related to pointers handling
-        //In this new managed implementation PTRs are no longer be used
-        // THis whole inheritance (class inherits from SafeHandle) might be unnecessary
-        //Maybe we just need to use regular methods.
+        //Took of all the overrides related to pointers behavior and the state init methods.
+        // Discovered all the implementations/methods were related to ZLibStreamHandle: SafeHandle
+        //which is related to pointers handling.
+        //In this new managed implementation PTRs are no longer be used - instead we'll use managed versions
+        //This whole inheritance (class inherits from SafeHandle) might be unnecessary
+        //Maybe we just need to use regular class/methods.
         //
-        //I'm still considering returning errors because of the logic behind of the algorithm
+        //I'm still considering if returning errors is the best way. Kept it for following the logic behind the original algorithm.
+        // -wanted to point out my skepticism tho- (I'll erase these type of comments later on for sure)
 
         private ZStream _zStream;
 
@@ -216,54 +220,73 @@ internal static class ManagedZLib
             get { return _zStream.availOut; }
             set { _zStream.availOut = value; }
         }
+        
 
         //Vivi's notes: Not unsafe anymore because there are no ptrs being handled -- but checking the possibility of using span
         public ErrorCode DeflateInit2_(CompressionLevel level, int windowBits, int memLevel, CompressionStrategy strategy)
         {
-        //Vivi's notes: Kept notation for readiness
-        return ErrorCode.Ok; //errorCode is an enum - this (int = 0) means Ok
+            //Vivi's notes: For the compiler not to cry in the meantime
+            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
+
+            //This would have gone to a PInvoke
+            //Vivi's notes: Kept notation for clarity
+            return ErrorCode.Ok; //errorCode is an enum - this (int = 0) means Ok
         }
 
 
         public ErrorCode Deflate(FlushCode flush)
         {
+            //Vivi's notes: For the compiler not to cry in the meantime
+            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
+
+            //This would have gone to a PInvoke
             return ErrorCode.Ok;
         }
 
 
         public ErrorCode DeflateEnd()
         {
+            //Vivi's notes: For the compiler not to cry in the meantime
+            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
+
+            //Vivi's notes: This would have gone to a PInvoke
             return ErrorCode.Ok;
         }
 
         public ErrorCode InflateInit2_(int windowBits)
         {
+            //Vivi's notes: For the compiler not to cry in the meantime
+            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
+
+            //Vivi's notes: This would have gone to a PInvoke
             return ErrorCode.Ok;
         }
 
 
         public ErrorCode Inflate(FlushCode flush)
         {
+            //Vivi's notes: For the compiler not to cry in the meantime
+            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
+
+            //Vivi's notes: This would have gone to a PInvoke for the native version of ZLib inflate
             return ErrorCode.Ok;
         }
 
 
         public ErrorCode InflateEnd()
         {
+            //Vivi's notes: For the compiler not to cry in the meantime
+            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
             return ErrorCode.Ok;
         }
 
-        // Vivi's notes(ES): Como no se usa ptrs ni Pinvoke, no hay necesidad de usar Marshal
-        // pero mantendremos checar que el string no sea nulo 
         // This can work even after XxflateEnd().
+        // Vivi's notes: No need for using Marshal methods (last version) but I'll keep the check for now
         public string GetErrorMessage() => _zStream.msg != null ? _zStream.msg! : string.Empty; //-- basic invalid str check
     }
-    //Vivi's notes: 
-    // Took off these methods cuz they were using the methods above for doing the most importance stuff and just adding
-    // things related to safeHandle -- related to PTRs
 
-    // -----------------------------------Vivi's note> I'll keep the wrapper for later returning a ZStream
-    // Posibilidad de unificacion con ZLibStream
+    // -------------------------------Vivi's note> I'll keep the wrapper for later returning a ZStream (but "To be revaluated")
+    // (ES) Posibilidad de unificacion con ZLibStream
     public static ErrorCode CreateZLibStreamForDeflate(out ZLibStreamHandle zLibStreamHandle, CompressionLevel level,
     int windowBits, int memLevel, CompressionStrategy strategy)
     {

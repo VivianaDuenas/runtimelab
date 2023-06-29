@@ -234,7 +234,7 @@ public partial class DeflateStream : Stream
         // If zlib doesn't have any data, fall back to the base stream implementation, which will do that.
         byte[] b = new byte[1];
         Debug.Assert(_inflater != null);
-        return _inflater.Inflate(b) ? b[0] : base.ReadByte();
+        return _inflater.Inflate(b)!=0 ? b[0] : base.ReadByte();
     }
 
     public override int Read(byte[] buffer, int offset, int count)
@@ -515,16 +515,10 @@ public partial class DeflateStream : Stream
         // Write compressed the bytes we already passed to the deflater:
         WriteDeflaterOutput();
 
-        unsafe
-        {
-            // Pass new bytes through deflater and write them too:
-            fixed (byte* bufferPtr = &MemoryMarshal.GetReference(buffer)) //NO NEED OF MARSHALL anymore -Vivi-
-            {
-                _deflater.SetInput(bufferPtr, buffer.Length);
-                WriteDeflaterOutput();
-                _wroteBytes = true;
-            }
-        }
+        _deflater.SetInput(buffer);
+        WriteDeflaterOutput();
+        _wroteBytes = true;
+
     }
 
     private void WriteDeflaterOutput()
@@ -810,7 +804,7 @@ public partial class DeflateStream : Stream
 
                 Debug.Assert(_deflater != null);
                 // Pass new bytes through deflater
-                _deflater.SetInput(buffer);
+                _deflater.SetInput(buffer.Span);
 
                 await WriteDeflaterOutputAsync(cancellationToken).ConfigureAwait(false);
 
@@ -900,7 +894,7 @@ public partial class DeflateStream : Stream
                 // Flush any existing data in the inflater to the destination stream.
                 while (!_deflateStream._inflater.Finished())
                 {
-                    int bytesRead = _deflateStream._inflater.Inflate(_arrayPoolBuffer, 0, _arrayPoolBuffer.Length);
+                    int bytesRead = _deflateStream._inflater.Inflate(_arrayPoolBuffer);
                     if (bytesRead > 0)
                     {
                         await _destination.WriteAsync(new ReadOnlyMemory<byte>(_arrayPoolBuffer, 0, bytesRead), _cancellationToken).ConfigureAwait(false);
@@ -936,7 +930,7 @@ public partial class DeflateStream : Stream
                 // Flush any existing data in the inflater to the destination stream.
                 while (!_deflateStream._inflater.Finished())
                 {
-                    int bytesRead = _deflateStream._inflater.Inflate(_arrayPoolBuffer, 0, _arrayPoolBuffer.Length);
+                    int bytesRead = _deflateStream._inflater.Inflate(_arrayPoolBuffer);
                     if (bytesRead > 0)
                     {
                         _destination.Write(_arrayPoolBuffer, 0, bytesRead);
