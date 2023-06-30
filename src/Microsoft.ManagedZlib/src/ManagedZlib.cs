@@ -17,7 +17,7 @@ namespace Microsoft.ManagedZLib;
 /// 
 /// See also: How to choose a compression level (in comments to <code>CompressionLevel</code>.
 /// </summary>
-internal static class ManagedZLib
+public static class ManagedZLib
 {
     //Vivi's notes(ES):Es justo y necesario (tener una estructura para ZStream)
     //aunque si requiere un formato mas complejo que ints, tal vez sea necesario

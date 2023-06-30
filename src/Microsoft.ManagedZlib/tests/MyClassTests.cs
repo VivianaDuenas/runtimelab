@@ -8,7 +8,7 @@ namespace Microsoft.ManagedZLib.Tests
         [Fact]
         public void Test1()
         {
-            Assert.True(ManagedZlib.ReturnTrue);
+            Assert.True(Microsoft.ManagedZLib.ManagedZLib.ReturnTrue);
         }
     }
 }
