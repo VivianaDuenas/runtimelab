@@ -123,6 +123,8 @@ namespace Microsoft.ManagedZLib
             }
         }
 
+        //Vivi's note> Esto maybe lo saque ahora de inputBuffer.NeedsInput() en lugar del struct de ManagedZLib
+        //En ambos casos checa si el inputBuffer esta vacio
         public bool NeedsInput() => 0 == _zlibStream.AvailIn;
 
         internal void SetInput(ReadOnlySpan<byte> inputBuffer)

@@ -1,19 +1,11 @@
 {
   "sdk": {
-<<<<<<< HEAD
     "version": "8.0.100-preview.5.23303.2",
-=======
-    "version": "8.0.100-preview.4.23260.5",
->>>>>>> 32846a12c84 (Initial commit, doesn't compile  yet)
     "allowPrerelease": true,
     "rollForward": "major"
   },
   "tools": {
-<<<<<<< HEAD
     "dotnet": "8.0.100-preview.5.23303.2",
-=======
-    "dotnet": "8.0.100-preview.4.23260.5",
->>>>>>> 32846a12c84 (Initial commit, doesn't compile  yet)
     "runtimes": {
       "dotnet": [
         "$(MicrosoftNETCoreAppVersion)"
@@ -21,10 +13,6 @@
     }
   },
   "msbuild-sdks": {
-<<<<<<< HEAD
     "Microsoft.DotNet.Arcade.Sdk": "8.0.0-beta.23330.1"
-=======
-    "Microsoft.DotNet.Arcade.Sdk": "8.0.0-beta.23309.8"
->>>>>>> 32846a12c84 (Initial commit, doesn't compile  yet)
   }
 }

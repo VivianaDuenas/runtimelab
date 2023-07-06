@@ -5,5 +5,6 @@
   
   <ItemGroup>
     <ProjectReference Include="..\src\Microsoft.ManagedZlib.csproj" />
+    <PackageReference Include="System.IO.Compression.TestData" Version="8.0.0-beta.23326.1" />
   </ItemGroup>
 </Project>

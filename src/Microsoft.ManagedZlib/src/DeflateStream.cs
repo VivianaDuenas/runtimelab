@@ -51,6 +51,7 @@ public partial class DeflateStream : Stream
     /// Internal constructor to check stream validity and call the correct initialization function depending on
     /// the value of the CompressionMode given.
     /// </summary>
+
     internal DeflateStream(Stream stream, CompressionMode mode, bool leaveOpen, int windowBits, long uncompressedSize = -1)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -652,7 +653,7 @@ public partial class DeflateStream : Stream
             bool finished;
             do
             {
-                finished = _deflater.Finish(_buffer, out _);
+                finished = _deflater.Finish(_buffer, out _); //To check - Hay unos out left que hay que quitar
             } while (!finished);
         }
     }

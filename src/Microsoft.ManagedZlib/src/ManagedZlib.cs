@@ -290,7 +290,9 @@ public static class ManagedZLib
     public static ErrorCode CreateZLibStreamForDeflate(out ZLibStreamHandle zLibStreamHandle, CompressionLevel level,
     int windowBits, int memLevel, CompressionStrategy strategy)
     {
-        zLibStreamHandle = new ZLibStreamHandle();
+        zLibStreamHandle = new ZLibStreamHandle(); //Vivi's note (ES)> Mega extra, aqui como que le pasa un stream con las struct que antes manejaban todos los ptrs
+        //Aparte usa *out en los parametros, todo indica que era como una interfaz o wrapper para manejar el apuntador
+        // No need of this I think
         return zLibStreamHandle.DeflateInit2_(level, windowBits, memLevel, strategy);
     }
 
