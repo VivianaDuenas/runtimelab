@@ -72,6 +72,14 @@ public static class ManagedZLib
         BufError = -5,
         VersionError = -6
     }
+
+    public enum BlockType // For inflate (RFC1951 deflate format)
+    {
+        Uncompressed = 0,
+        Static = 1,
+        Dynamic = 2
+    }
+
     // Vivi's notes> Tengo que copiar el summary de este enum
     public enum CompressionLevel : int
     {
@@ -220,9 +228,10 @@ public static class ManagedZLib
             get { return _zStream.availOut; }
             set { _zStream.availOut = value; }
         }
-        
 
-        //Vivi's notes: Not unsafe anymore because there are no ptrs being handled -- but checking the possibility of using span
+
+        //Vivi's notes: If we decide to do everything (compress and uncompress) in a class called Deflate/Inflate then this class might be
+        // just for error checking or like a initial setup on the buffers.
         public ErrorCode DeflateInit2_(CompressionLevel level, int windowBits, int memLevel, CompressionStrategy strategy)
         {
             //Vivi's notes: For the compiler not to cry in the meantime
@@ -255,8 +264,11 @@ public static class ManagedZLib
 
         public ErrorCode InflateInit2_(int windowBits)
         {
-            //Vivi's notes: For the compiler not to cry in the meantime
-            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
+
+               //ErrorCode errC = Interop.ZLib.InflateInit2_(stream, windowBits);
+
+               //Vivi's notes: For the compiler not to cry in the meantime
+               _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
 
             //Vivi's notes: This would have gone to a PInvoke
             return ErrorCode.Ok;
@@ -283,6 +295,7 @@ public static class ManagedZLib
         // This can work even after XxflateEnd().
         // Vivi's notes: No need for using Marshal methods (last version) but I'll keep the check for now
         public string GetErrorMessage() => _zStream.msg != null ? _zStream.msg! : string.Empty; //-- basic invalid str check
+        
     }
 
     // -------------------------------Vivi's note> I'll keep the wrapper for later returning a ZStream (but "To be revaluated")

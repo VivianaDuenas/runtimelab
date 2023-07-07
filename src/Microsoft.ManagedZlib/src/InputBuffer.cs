@@ -1,6 +1,7 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Diagnostics;
 
 namespace Microsoft.ManagedZLib;
@@ -120,6 +121,7 @@ internal sealed class InputBuffer
         return result;
     }
 
+    // ---------  Data
     /// <summary>
     /// Copies bytes from input buffer to output buffer.
     /// You have to make sure, that the buffer is byte aligned. If not enough bytes are
@@ -152,6 +154,7 @@ internal sealed class InputBuffer
         return bytesFromBitBuffer + length;
     }
 
+    // --- Length
     /// <summary>
     /// Copies length bytes from input buffer to output buffer starting at output[offset].
     /// You have to make sure, that the buffer is byte aligned. If not enough bytes are
