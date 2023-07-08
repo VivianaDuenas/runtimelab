@@ -71,7 +71,7 @@ internal sealed class Inflater
     private bool _finished;                             // Whether the end of the stream has been reached
     private bool _isDisposed;                           // Prevents multiple disposals
     private readonly int _windowBits;                   // The WindowBits parameter passed to Inflater construction
-    private ManagedZLib.ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream -- Vivi's note: TBD if necessary
+    private ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream -- Vivi's note: TBD if necessary
 
     //Vivi's note> This structure, if necessary, will be re-design because before it was implemented
     // for pointer handling. - On the meantime there's a rough struct replacing the old one in ManagedZLib- 
@@ -81,10 +81,11 @@ internal sealed class Inflater
     //private long _currentInflatedCount;
 
     private object SyncLock => this;                    // Used to make writing to unmanaged structures atomic
-    public int AvailableOutput => (int)_zlibStream.AvailOut; //Vivi's notes> If in ZStream we decide to have Spans, this might not be needed anymore
+                                                        
+    public int AvailableOutput => _output.AvailableBytes;//This could be:  if we decide to make a struct instead of classes
+                                                         //public int AvailableOutput => (int)_zlibStream.AvailOut;
 
-    // const tables used in decoding:
-
+    //-------------------- Bellow const tables used in decoding:
     // The base length for length code 257 - 285.
     // The formula to get the real length for a length code is lengthBase[code - 257] + (value stored in extraBits)
     private static ReadOnlySpan<byte> LengthBase => new byte[]
@@ -128,7 +129,8 @@ internal sealed class Inflater
     internal Inflater(int windowBits, long uncompressedSize = -1)
     {
         _input = new InputBuffer();
-        _output = new OutputBuffer(windowBits);
+        // Initializing window size according the type of deflate (window limits - 32k or 64k)
+        _output = _deflate64? new OutputBuffer() : new OutputBuffer(windowBits);
         //Vivi's notes> Review if it's really necessary to reserve this much like an array of bytes
         _codeList = new byte[IHuffmanTree.MaxLiteralTreeElements + IHuffmanTree.MaxDistTreeElements];
         _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];
@@ -154,7 +156,7 @@ internal sealed class Inflater
     /// <summary>
     /// Returns true if the end of the stream has been reached.
     /// </summary>
-    public bool Finished() => _finished; //Este tipo de flags son importantes aunque maybe desde otra perspectiva(no ptrs)
+    public bool Finished() =>  _state == InflaterState.Done || _state == InflaterState.VerifyingFooter;
 
     // Vivi's notes> If there's s need of a subset of the buffer,
     // instead of passing a length and offset along with the buffer (like before)
@@ -179,11 +181,15 @@ internal sealed class Inflater
         // State is valid; attempt inflation
         // -- Vivi's notes: This State thing (Enum) is in ManagedZLib and I'm not sure if is needed
         // It might be informative but was mainly involved in the use of pointer before
+        int countCopied = 0;
+        do
+        {
             int bytesRead = 0;
             if (_uncompressedSize == -1)
             {
-            //Vivi's notes> Here we could pass a Span and take away the length
-            bytesRead = ReadOutput(bufferBytes, bytesRead);
+                // -----------------------------Note - in progress ----------------------------
+                //Read Output will be de wrapper for error checking and _output.CopyTo()
+                bytesRead = ReadOutput(bufferBytes, bytesRead); 
             }
             else
             {
@@ -196,17 +202,20 @@ internal sealed class Inflater
                 }
                 else
                 {
-                    _finished = true;
-                    _zlibStream.AvailIn = 0;
+                    //Done reading input
+                    _state = InflaterState.Done;
+                    _output.ClearBytesUsed();
                 }
-            }
-            return bytesRead;
+            } //Pending to add the decode() -------------------------- in progress ------------
+        } while (!Finished() && Decode()) ; //Will return 0 when more input is need
+
+        return countCopied;
     }
 
     private int ReadOutput(Span<byte> buffer, int bytesRead)
     {
-        //Vivi's notes> Here we will pass a Span and take away the *length parameter
-        if (ReadInflateOutput(buffer, buffer.Length, FlushCode.NoFlush, out bytesRead) == ErrorCode.StreamEnd)
+        //Vivi's notes> Here we will pass a Span and take away "length" parameter
+        if (ReadInflateOutput(buffer, bytesCopied FlushCode.NoFlush, out bytesRead) == ErrorCode.StreamEnd)
         {
             if (!_input.NeedsInput() && IsGzipStream())
             {
@@ -442,7 +451,7 @@ internal sealed class Inflater
                             symbol += 3;   // match length = 3,4,5,6,7,8,9,10
                             _extraBits = 0;
                         }
-                        else if (!_deflateType && symbol == 28) //deflateType is 64k
+                        else if (!_deflate64 && symbol == 28) //deflateType is 64k
                         {
                             // extra bits for code 285 is 0
                             symbol = 258;             // code 285 means length 258
@@ -452,7 +461,7 @@ internal sealed class Inflater
                         {
                             if ((uint)symbol >= ExtraLengthBits.Length)
                             {
-                                throw new InvalidDataException(SR.GenericInvalidData);
+                                throw new InvalidDataException("GenericInvalidData - Found invalid data while decoding.");
                             }
                             _extraBits = ExtraLengthBits[symbol];
                             Debug.Assert(_extraBits != 0, "We handle other cases separately!");
@@ -538,4 +547,5 @@ internal sealed class Inflater
 
         return true;
     }
+
 }
