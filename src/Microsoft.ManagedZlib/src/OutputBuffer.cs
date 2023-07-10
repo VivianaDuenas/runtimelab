@@ -135,6 +135,7 @@ internal sealed class OutputBuffer
     /// <summary>Bytes not consumed in output window.</summary>
     public int AvailableBytes => _bytesUsed;
 
+    // ReadInflateOutput
     /// <summary>Copy the decompressed bytes to output buffer.</summary>
     public int CopyTo(Span<byte> output)
     {

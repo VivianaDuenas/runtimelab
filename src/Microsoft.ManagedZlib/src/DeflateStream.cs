@@ -681,7 +681,7 @@ public partial class DeflateStream : Stream
                 try
                 {
                     _deflater?.Dispose();
-                    _inflater?.Dispose();
+                    //_inflater?.Dispose(); - TBD
                 }
                 finally
                 {
@@ -734,7 +734,7 @@ public partial class DeflateStream : Stream
                     try
                     {
                         _deflater?.Dispose();
-                        _inflater?.Dispose();
+                        //_inflater?.Dispose(); -TBD
                     }
                     finally
                     {
@@ -978,11 +978,11 @@ public partial class DeflateStream : Stream
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             _deflateStream.EnsureNotDisposed();
-
-            return WriteAsyncCore(buffer, cancellationToken);
+            Memory<byte> memBuffer = buffer.ToArray(); //Change to just Memory for first iteration
+            return WriteAsyncCore(memBuffer, cancellationToken);
         }
-
-        private async ValueTask WriteAsyncCore(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+        // Vivi's notes> Changed from ReadOnlyMemory to just Memory for first iteration
+        private async ValueTask WriteAsyncCore(Memory<byte> buffer, CancellationToken cancellationToken)
         {
             Debug.Assert(_deflateStream._inflater is not null);
 

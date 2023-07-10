@@ -7,12 +7,15 @@ using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
+using System.Text;
 using static Microsoft.ManagedZLib.ManagedZLib;
+using static Microsoft.ManagedZLib.ManagedZLib.ZLibStreamHandle;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Microsoft.ManagedZLib;
@@ -68,8 +71,8 @@ internal sealed class Inflater
     private const int MaxWindowBits = 47;               // zlib headers, 24..31 for GZip headers, or 40..47 for either Zlib or GZip
 
     private bool _nonEmptyInput;                        // Whether there is any non empty input
-    private bool _finished;                             // Whether the end of the stream has been reached
-    private bool _isDisposed;                           // Prevents multiple disposals
+    //private bool _finished;                             // Whether the end of the stream has been reached
+    //private bool _isDisposed;                           // Prevents multiple disposals
     private readonly int _windowBits;                   // The WindowBits parameter passed to Inflater construction
     private ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream -- Vivi's note: TBD if necessary
 
@@ -81,7 +84,7 @@ internal sealed class Inflater
     //private long _currentInflatedCount;
 
     private object SyncLock => this;                    // Used to make writing to unmanaged structures atomic
-                                                        
+    public bool NeedsInput() => _input.NeedsInput();
     public int AvailableOutput => _output.AvailableBytes;//This could be:  if we decide to make a struct instead of classes
                                                          //public int AvailableOutput => (int)_zlibStream.AvailOut;
 
@@ -136,9 +139,9 @@ internal sealed class Inflater
         _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];
 
         Debug.Assert(windowBits >= MinWindowBits && windowBits <= MaxWindowBits);
-        _finished = false;
+        //_finished = false;
         _nonEmptyInput = false;
-        _isDisposed = false;
+        //_isDisposed = false;
         _windowBits = windowBits;
         InflateInit(windowBits);
         _state = InflaterState.ReadingBFinal; // BFINAL - First bit of the block
@@ -189,7 +192,9 @@ internal sealed class Inflater
             {
                 // -----------------------------Note - in progress ----------------------------
                 //Read Output will be de wrapper for error checking and _output.CopyTo()
-                bytesRead = ReadOutput(bufferBytes, bytesRead); 
+                bytesRead = ReadOutput(bufferBytes);
+                //Esta  seccion en Inflate version Managed se parece a lo que ya hace ReaOutput - ReadInflateOutput -
+                //Aunque le falta las validaciones del flush y fin de bloque para GZip y ZLib, oslo tiene E-o-B de rew deflate.
             }
             else
             {
@@ -197,7 +202,7 @@ internal sealed class Inflater
                 {
                     int newLength = (int)Math.Min(bufferBytes.Length, _uncompressedSize - _currentInflatedCount);
                     bufferBytes = bufferBytes.Slice(newLength);
-                    bytesRead = ReadOutput(bufferBytes, bytesRead); //Vivi's notes> Here you would pass a slice of the Span
+                    bytesRead = ReadOutput(bufferBytes); //Vivi's notes> Here you would pass a slice of the Span
                     _currentInflatedCount += bytesRead;
                 }
                 else
@@ -206,85 +211,23 @@ internal sealed class Inflater
                     _state = InflaterState.Done;
                     _output.ClearBytesUsed();
                 }
+                if (bytesRead > 0)
+                {
+                    bufferBytes = bufferBytes.Slice(bytesRead);
+                    countCopied += bytesRead;
+                }
+
+                if (bufferBytes.IsEmpty)
+                {
+                    // filled in the bytes buffer
+                    break;
+                }
             } //Pending to add the decode() -------------------------- in progress ------------
         } while (!Finished() && Decode()) ; //Will return 0 when more input is need
 
         return countCopied;
     }
-
-    private int ReadOutput(Span<byte> buffer, int bytesRead)
-    {
-        //Vivi's notes> Here we will pass a Span and take away "length" parameter
-        if (ReadInflateOutput(buffer, bytesCopied FlushCode.NoFlush, out bytesRead) == ErrorCode.StreamEnd)
-        {
-            if (!_input.NeedsInput() && IsGzipStream())
-            {
-                _finished = ResetStreamForLeftoverInput();
-            }
-            else
-            {
-                _finished = true;
-            }
-        }
-        return bytesRead;
-    }
-
-    /// <summary>
-    /// Wrapper around the ZLib inflate function, configuring the stream appropriately.
-    /// </summary>
-    private ErrorCode ReadInflateOutput(Span<byte> buffer, int length, FlushCode flushCode, out int bytesRead)
-    {
-        lock (SyncLock)
-        {
-            _zlibStream.NextOut = buffer.ToArray(); // Vivi's note> Check later if it's necessary to change the byte[] type
-            _zlibStream.AvailOut = (uint)buffer.Length;
-
-            ManagedZLib.ErrorCode errC = Inflate(flushCode); //Vivi's notes: Entry to managedZLib
-            bytesRead = buffer.Length - AvailableOutput;
-
-            return errC;
-        }
-    }
-    
-    /// <summary>
-    /// Wrapper around the ZLib inflate function
-    /// </summary>
-    private ErrorCode Inflate(ManagedZLib.FlushCode flushCode)
-    {
-        ErrorCode errC;
-        try
-        {
-            errC = _zlibStream.Inflate(flushCode);
-        }
-        catch (Exception cause) // could not load the Zlib DLL correctly
-        {
-            throw new ZLibException("ZLibErrorDLLLoadError - The underlying compression routine could not be loaded correctly.", cause);
-        }
-        switch (errC)
-        {
-            case ErrorCode.Ok:           // progress has been made inflating
-            case ErrorCode.StreamEnd:    // The end of the input stream has been reached
-                return errC;
-
-            case ErrorCode.BufError:     // No room in the output buffer - inflate() can be called again with more space to continue
-                return errC;
-
-            case ErrorCode.MemError:     // Not enough memory to complete the operation
-                throw new ZLibException("ZLibErrorNotEnoughMemory - The underlying compression routine could not reserve sufficient memory.", 
-                    "inflate_", (int)errC, _zlibStream.GetErrorMessage());
-
-            case ErrorCode.DataError:    // The input data was corrupted (input stream not conforming to the zlib format or incorrect check value)
-                throw new InvalidDataException("UnsupportedCompression - The archive entry was compressed using an unsupported compression method.");
-
-            case ErrorCode.StreamError:  //the stream structure was inconsistent (for example if next_in or next_out was NULL),
-                throw new ZLibException("ZLibErrorInconsistentStream - The stream state of the underlying compression routine is inconsistent.",
-                    "inflate_", (int)errC, _zlibStream.GetErrorMessage());
-
-            default:
-                throw new ZLibException("ZLibErrorUnexpected - The underlying compression routine returned an unexpected error code.", 
-                    "inflate_", (int)errC, _zlibStream.GetErrorMessage());
-        }
-    }
+    private int ReadOutput(Span<byte> outputBytes) => _output.CopyTo(outputBytes);
 
     /// <summary>
     /// If this stream has some input leftover that hasn't been processed then we should
@@ -292,7 +235,7 @@ internal sealed class Inflater
     ///
     /// Returns false if the leftover input is another GZip data stream.
     /// </summary>
-    private bool ResetStreamForLeftoverInput()
+    private bool ResetStreamForLeftoverInput() // Esto con InputBuffer instead of next AvailIn**** --------------------OJO
     {
         Debug.Assert(!_input.NeedsInput());
         Debug.Assert(IsGzipStream());
@@ -301,7 +244,11 @@ internal sealed class Inflater
         {
             byte[] nextIn = _zlibStream.NextIn;
             uint nextAvailIn = _zlibStream.AvailIn;
+            //Vivi's notes> Here there's needed a Copyto a method in OutputBuffer.
+            // We have reached the end of the block so with want to flush what we had from the last one.
+            //Vivi's notes (ES)> Aqui se aplica un CopyTo -- metodo de la clase OutputBuffer
 
+            // This is for checking is a new block is being read - FushCode.Block=5
             // Check the leftover bytes to see if they start with he gzip header ID bytes
             if (nextIn[0] != GZip_Header_ID1 || (nextAvailIn > 1 && nextIn[1] != GZip_Header_ID2))
             {
@@ -318,7 +265,7 @@ internal sealed class Inflater
             // SetInput on the new stream to the bits remaining from the last stream
             _zlibStream.NextIn = nextIn;
             _zlibStream.AvailIn = nextAvailIn;
-            _finished = false;
+            //_finished = false;
         }
 
         return false;
@@ -329,18 +276,23 @@ internal sealed class Inflater
     /// BUT now it creates the output buffers instead
     /// </summary>
     [MemberNotNull(nameof(_zlibStream))]
-    private void InflateInit(int windowBits)
+    private void InflateInit(int windowBits) //Does not perfom decompression - for sanity checks vefore actually calling Inflate()
     {
+        // API's entry point -- This goes to the InflateInt2_ of the PInvoke.
+        // In this managed version, I'll try to do all the initializations required 
+        // and error checkings here (Like the algorithm does in InflateInit)
+        // for calling my managed Infate() afterwards.
         // Vivi's notes(ES)> Lit en el codigo de C, init solo llama  Init2_ 
-        //--------------I'll have to check how to do this error checking because I do thing 
-        //CreateZLibStreamForInflate id not necessary anymore, at least if everything is going to be done 
+
+        //--------------I'll have to check how to do this error checking because I do think 
+        //CreateZLibStreamForInflate is not necessary anymore, at least if everything is going to be done 
         //in the input/output classes
 
         ErrorCode error;
         try
         {
             //Vivi'a notes> Instead of calling ManagedZLib.CreateZLibStreamForInflate(out _zlibStream, windowBits);
-            //It should be just called - InflateInit2_
+            //This can be the new InflateInit2_
             error = CreateZLibStreamForInflate(out _zlibStream, windowBits);
         }
         catch (Exception exception) // could not load the ZLib dll ------ Vivi's notes> Not useful anymore to a managed implementation
@@ -395,20 +347,120 @@ internal sealed class Inflater
         lock (SyncLock)
         {
             _input.SetInput(inputBuffer);
-            //Updating the ZStream AvailIn, probably redundant but still deciding on final structure for handling I/O
+            //Updating the ZStream AvailIn
+            //This (what's bellow) is probably redundant but still deciding on final structure for handling I/O
             _zlibStream.AvailIn = (uint)inputBuffer.Length;
-            _finished = false;
+            //_finished = false;
             _nonEmptyInput = true;
         }
     }
 
-    // -------------------- We the end of a block is reached ---------------------
-    private bool DecodeBlock(out bool end_of_block_code_seen)
+
+    private bool Decode()
+    {
+        bool EndOfBlock = false;
+        bool result;
+        /*
+        *---------------------For checking later, to add some extra checks here, the ones done by ReadOutput and ResetStreamForLeftoverInput() 
+        * ------ResetStreamForLeftoverInput() for GZip and ZLib scenarios that behave differently than raw inflate.
+        * ResetStreamForLeftoverInput() checks if it's a GZpin member
+        * private int ReadOutput(Span<byte> buffer, int bytesRead)
+            */
+        if (Finished()) // ------------AQUI SE CHECA LO DEL HEADER DEL SIGUIENTE BLOQUE PARA VER SI ES UN GZIP MEMBER
+                        //  *Maybe not just there but in every part where EnfOfBlock is checked
+        {
+            //Check if it is completely necessary to do this check here
+            return (!_input.NeedsInput() && IsGzipStream()) ? ResetStreamForLeftoverInput() : true;
+        }
+
+        if (_state == InflaterState.ReadingBFinal)
+        {
+            // reading bfinal bit
+            // Need 1 bit
+            if (!_input.EnsureBitsAvailable(1))
+                return false;
+
+            _finalByte = _input.GetBits(1);
+            _state = InflaterState.ReadingBType;
+        }
+
+        if (_state == InflaterState.ReadingBType)
+        {
+            // Need 2 bits
+            if (!_input.EnsureBitsAvailable(2))
+            {
+                _state = InflaterState.ReadingBType;
+                return false;
+            }
+
+            _blockType = (BlockType)_input.GetBits(2);
+            if (_blockType == BlockType.Dynamic)
+            {
+                _state = InflaterState.ReadingNumLitCodes;
+            }
+            else if (_blockType == BlockType.Static)
+            {
+                _literalLengthTree = IHuffmanTree.StaticLiteralLengthTree;
+                _distanceTree = IHuffmanTree.StaticDistanceTree;
+                _state = InflaterState.DecodeTop;
+            }
+            else if (_blockType == BlockType.Uncompressed)
+            {
+                _state = InflaterState.UncompressedAligning;
+            }
+            else
+            {
+                throw new InvalidDataException("UnknownBlockType - Unknown block type. Stream might be corrupted.");
+            }
+        }
+
+        if (_blockType == BlockType.Dynamic)
+        {
+            if (_state < InflaterState.DecodeTop)
+            {
+                // we are reading the header
+                result = DecodeDynamicBlockHeader();
+            }
+            else
+            {
+                result = DecodeBlock(out EndOfBlock); // this can returns true when output is full
+            }
+        }
+        else if (_blockType == BlockType.Static)
+        {
+            result = DecodeBlock(out EndOfBlock);
+        }
+        else if (_blockType == BlockType.Uncompressed)
+        {
+            result = DecodeUncompressedBlock(out EndOfBlock);
+        }
+        else
+        {
+            throw new InvalidDataException("UnknownBlockType - Unknown block type. Stream might be corrupted.");
+        }
+
+        //
+        // If we reached the end of the block and the block we were decoding had
+        // bfinal=1 (final block)
+        //
+        if (EndOfBlock && (_finalByte != 0))
+        {
+            _state = InflaterState.Done;
+        }
+        return result;
+    }
+
+    // Pseudocode in pag10-11 mainly of RFC1951 - Follows the merging specifications of the Literal and length alphabet (0...285)
+    // like [0...255] literal bytes, 256 End-of-block, [257-285] length codes.
+    //Format of Compressed fixed Huffman codes blocks(BTYPE= 01) - RFC1951 spec
+    // -------------------- Decoding algorithm for the actual data per Deflate block ---------------------
+    private bool DecodeBlock(out bool end_of_block_code_seen) //Possibility of putting GZip member checking here.
     {
         end_of_block_code_seen = false;
 
         int freeBytes = _output.FreeBytes;   // it is a little bit faster than frequently accessing the property
-        while (freeBytes > 65536 && _deflate64==true)
+        while (freeBytes > 65536) //Vivi's notes(ES)> Mientras los bytes libres en el output buffer sea mayores a 65536
+                                  //Here the approach goes, instead of filling it, taking away what's available
         {
             // With Deflate64 we can have up to a 64kb length, so we ensure at least that much space is available
             // in the OutputWindow to avoid overwriting previous unflushed output data.
@@ -483,7 +535,7 @@ internal sealed class Inflater
 
                         if (_length < 0 || _length >= LengthBase.Length)
                         {
-                            throw new InvalidDataException(SR.GenericInvalidData);
+                            throw new InvalidDataException("GenericInvalidData - Found invalid data while decoding.");
                         }
                         _length = LengthBase[_length] + bits;
                     }
@@ -545,6 +597,268 @@ internal sealed class Inflater
             }
         }
 
+        return true;
+    }
+    //-------------------------- Decoding depending on the type of compression ------
+
+    // Format of Non-compressed blocks (BTYPE=00) - RFC1951 spec
+    private bool DecodeUncompressedBlock(out bool end_of_block)
+    {
+        end_of_block = false;
+        while (true)
+        {
+            switch (_state)
+            {
+                case InflaterState.UncompressedAligning: // initial state when calling this function
+                                                         // we must skip to a byte boundary
+                    _input.SkipToByteBoundary();
+                    _state = InflaterState.UncompressedByte1;
+                    goto case InflaterState.UncompressedByte1;
+
+                case InflaterState.UncompressedByte1:   // decoding block length
+                case InflaterState.UncompressedByte2:
+                case InflaterState.UncompressedByte3:
+                case InflaterState.UncompressedByte4:
+                    int bits = _input.GetBits(8);
+                    if (bits < 0)
+                    {
+                        return false;
+                    }
+
+                    _blockLengthBuffer[_state - InflaterState.UncompressedByte1] = (byte)bits;
+                    if (_state == InflaterState.UncompressedByte4)
+                    {
+                        _blockLength = _blockLengthBuffer[0] + ((int)_blockLengthBuffer[1]) * 256;
+                        int blockLengthComplement = _blockLengthBuffer[2] + ((int)_blockLengthBuffer[3]) * 256;
+
+                        // make sure complement matches
+                        if ((ushort)_blockLength != (ushort)(~blockLengthComplement))
+                        {
+                            throw new InvalidDataException("InvalidBlockLength - Block length does not match with its complement.");
+                        }
+                    }
+
+                    _state += 1;
+                    break;
+
+                case InflaterState.DecodingUncompressed: // copying block data
+
+                    // Directly copy bytes from input to output.
+                    int bytesCopied = _output.CopyFrom(_input, _blockLength);
+                    _blockLength -= bytesCopied;
+
+                    if (_blockLength == 0)
+                    {
+                        // Done with this block, need to re-init bit buffer for next block
+                        _state = InflaterState.ReadingBFinal;
+                        end_of_block = true;
+                        return true;
+                    }
+
+                    // We can fail to copy all bytes for two reasons:
+                    //    Running out of Input
+                    //    running out of free space in output window
+                    if (_output.FreeBytes == 0)
+                    {
+                        return true;
+                    }
+
+                    return false;
+
+                default:
+                    Debug.Fail("check why we are here!");
+                    throw new InvalidDataException("UnknownState - Decoder is in some unknown state.This might be caused by corrupted data.");
+            }
+        }
+    }
+    // Format of Compression with dynamic Huffman codes (BTYPE=10)
+    // Dynamic Block header - RFC1951
+    private bool DecodeDynamicBlockHeader()
+    {
+        switch (_state)
+        {
+            case InflaterState.ReadingNumLitCodes:
+                _literalLengthCodeCount = _input.GetBits(5);
+                if (_literalLengthCodeCount < 0)
+                {
+                    return false;
+                }
+                _literalLengthCodeCount += 257;
+                _state = InflaterState.ReadingNumDistCodes;
+                goto case InflaterState.ReadingNumDistCodes;
+
+            case InflaterState.ReadingNumDistCodes:
+                _distanceCodeCount = _input.GetBits(5);
+                if (_distanceCodeCount < 0)
+                {
+                    return false;
+                }
+                _distanceCodeCount += 1;
+                _state = InflaterState.ReadingNumCodeLengthCodes;
+                goto case InflaterState.ReadingNumCodeLengthCodes;
+
+            case InflaterState.ReadingNumCodeLengthCodes:
+                _codeLengthCodeCount = _input.GetBits(4);
+                if (_codeLengthCodeCount < 0)
+                {
+                    return false;
+                }
+                _codeLengthCodeCount += 4;
+                _loopCounter = 0;
+                _state = InflaterState.ReadingCodeLengthCodes;
+                goto case InflaterState.ReadingCodeLengthCodes;
+
+            case InflaterState.ReadingCodeLengthCodes:
+                while (_loopCounter < _codeLengthCodeCount)
+                {
+                    int bits = _input.GetBits(3);
+                    if (bits < 0)
+                    {
+                        return false;
+                    }
+                    _codeLengthTreeCodeLength[CodeOrder[_loopCounter]] = (byte)bits;
+                    ++_loopCounter;
+                }
+
+                for (int i = _codeLengthCodeCount; i < CodeOrder.Length; i++)
+                {
+                    _codeLengthTreeCodeLength[CodeOrder[i]] = 0;
+                }
+
+                // create huffman tree for code length
+                _codeLengthTree = new IHuffmanTree(_codeLengthTreeCodeLength);
+                _codeArraySize = _literalLengthCodeCount + _distanceCodeCount;
+                _loopCounter = 0; // reset loop count
+
+                _state = InflaterState.ReadingTreeCodesBefore;
+                goto case InflaterState.ReadingTreeCodesBefore;
+
+            case InflaterState.ReadingTreeCodesBefore:
+            case InflaterState.ReadingTreeCodesAfter:
+                while (_loopCounter < _codeArraySize)
+                {
+                    if (_state == InflaterState.ReadingTreeCodesBefore)
+                    {
+                        Debug.Assert(_codeLengthTree != null);
+                        if ((_lengthCode = _codeLengthTree.GetNextSymbol(_input)) < 0)
+                        {
+                            return false;
+                        }
+                    }
+
+                    // The alphabet for code lengths is as follows:
+                    //  0 - 15: Represent code lengths of 0 - 15
+                    //  16: Copy the previous code length 3 - 6 times.
+                    //  The next 2 bits indicate repeat length
+                    //         (0 = 3, ... , 3 = 6)
+                    //      Example:  Codes 8, 16 (+2 bits 11),
+                    //                16 (+2 bits 10) will expand to
+                    //                12 code lengths of 8 (1 + 6 + 5)
+                    //  17: Repeat a code length of 0 for 3 - 10 times.
+                    //    (3 bits of length)
+                    //  18: Repeat a code length of 0 for 11 - 138 times
+                    //    (7 bits of length)
+                    if (_lengthCode <= 15)
+                    {
+                        _codeList[_loopCounter++] = (byte)_lengthCode;
+                    }
+                    else
+                    {
+                        int repeatCount;
+                        if (_lengthCode == 16)
+                        {
+                            if (!_input.EnsureBitsAvailable(2))
+                            {
+                                _state = InflaterState.ReadingTreeCodesAfter;
+                                return false;
+                            }
+
+                            if (_loopCounter == 0)
+                            {
+                                // can't have "prev code" on first code
+                                throw new InvalidDataException();
+                            }
+
+                            byte previousCode = _codeList[_loopCounter - 1];
+                            repeatCount = _input.GetBits(2) + 3;
+
+                            if (_loopCounter + repeatCount > _codeArraySize)
+                            {
+                                throw new InvalidDataException();
+                            }
+
+                            for (int j = 0; j < repeatCount; j++)
+                            {
+                                _codeList[_loopCounter++] = previousCode;
+                            }
+                        }
+                        else if (_lengthCode == 17)
+                        {
+                            if (!_input.EnsureBitsAvailable(3))
+                            {
+                                _state = InflaterState.ReadingTreeCodesAfter;
+                                return false;
+                            }
+
+                            repeatCount = _input.GetBits(3) + 3;
+
+                            if (_loopCounter + repeatCount > _codeArraySize)
+                            {
+                                throw new InvalidDataException();
+                            }
+
+                            for (int j = 0; j < repeatCount; j++)
+                            {
+                                _codeList[_loopCounter++] = 0;
+                            }
+                        }
+                        else
+                        {
+                            // code == 18
+                            if (!_input.EnsureBitsAvailable(7))
+                            {
+                                _state = InflaterState.ReadingTreeCodesAfter;
+                                return false;
+                            }
+
+                            repeatCount = _input.GetBits(7) + 11;
+
+                            if (_loopCounter + repeatCount > _codeArraySize)
+                            {
+                                throw new InvalidDataException();
+                            }
+
+                            for (int j = 0; j < repeatCount; j++)
+                            {
+                                _codeList[_loopCounter++] = 0;
+                            }
+                        }
+                    }
+                    _state = InflaterState.ReadingTreeCodesBefore; // we want to read the next code.
+                }
+                break;
+
+            default:
+                Debug.Fail("check why we are here!");
+                throw new InvalidDataException("UnknownState - Decoder is in some unknown state.This might be caused by corrupted data.");
+        }
+
+        byte[] literalTreeCodeLength = new byte[IHuffmanTree.MaxLiteralTreeElements];
+        byte[] distanceTreeCodeLength = new byte[IHuffmanTree.MaxDistTreeElements];
+
+        // Create literal and distance tables
+        Array.Copy(_codeList, literalTreeCodeLength, _literalLengthCodeCount);
+        Array.Copy(_codeList, _literalLengthCodeCount, distanceTreeCodeLength, 0, _distanceCodeCount);
+
+        // Make sure there is an end-of-block code, otherwise how could we ever end?
+        if (literalTreeCodeLength[IHuffmanTree.EndOfBlockCode] == 0)
+        {
+            throw new InvalidDataException();
+        }
+
+        _literalLengthTree = new IHuffmanTree(literalTreeCodeLength);
+        _distanceTree = new IHuffmanTree(distanceTreeCodeLength);
+        _state = InflaterState.DecodeTop;
         return true;
     }
 
