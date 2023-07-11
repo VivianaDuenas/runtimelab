@@ -15,14 +15,13 @@ namespace Microsoft.ManagedZLib;
 public partial class DeflateStream : Stream
 {
     private const int DefaultBufferSize = 8192;
-
     private Stream _stream;
-    private CompressionMode _mode;
-    private bool _leaveOpen;
     private Inflater? _inflater;
     private Deflater? _deflater;
     private byte[]? _buffer;
     private int _activeAsyncOperation; // 1 == true, 0 == false
+    private CompressionMode _mode;
+    private bool _leaveOpen;
     private bool _wroteBytes;
 
     internal DeflateStream(Stream stream, CompressionMode mode, long uncompressedSize) : this(stream, mode, leaveOpen: false, ManagedZLib.Deflate_DefaultWindowBits, uncompressedSize)
