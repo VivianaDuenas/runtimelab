@@ -133,7 +133,7 @@ internal sealed class Inflater
     {
         _input = new InputBuffer();
         // Initializing window size according the type of deflate (window limits - 32k or 64k)
-        _output = _deflate64? new OutputBuffer() : new OutputBuffer(windowBits);
+        _output = _deflate64? new OutputBuffer() : new OutputBuffer();
         //Vivi's notes> Review if it's really necessary to reserve this much like an array of bytes
         _codeList = new byte[IHuffmanTree.MaxLiteralTreeElements + IHuffmanTree.MaxDistTreeElements];
         _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];

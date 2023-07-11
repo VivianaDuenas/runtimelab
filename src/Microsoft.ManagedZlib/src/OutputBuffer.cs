@@ -32,8 +32,12 @@ internal sealed class OutputBuffer
     /// </summary>
     internal OutputBuffer(int windowBits)
     {
-        WindowSize = 2 ^ windowBits;
-        WindowMask = WindowSize - 1;
+        //I still have to check if this actually necessary
+        //  WindowSize = 2 ^ windowBits;
+        //  WindowMask = WindowSize - 1;
+        // _window = new byte[WindowSize];
+        WindowSize = 262144;
+        WindowMask = 262143;
         _window = new byte[WindowSize];
     }
     internal OutputBuffer() //deflate64
