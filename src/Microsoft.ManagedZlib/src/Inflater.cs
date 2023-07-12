@@ -360,19 +360,40 @@ internal sealed class Inflater
     {
         bool EndOfBlock = false;
         bool result;
-        /*
-        *---------------------For checking later, to add some extra checks here, the ones done by ReadOutput and ResetStreamForLeftoverInput() 
-        * ------ResetStreamForLeftoverInput() for GZip and ZLib scenarios that behave differently than raw inflate.
-        * ResetStreamForLeftoverInput() checks if it's a GZpin member
-        * private int ReadOutput(Span<byte> buffer, int bytesRead)
-            */
+        
+        // For checking later, to add some extra checks here, the ones done by ReadOutput and ResetStreamForLeftoverInput() 
+        // ResetStreamForLeftoverInput() for GZip and ZLib scenarios that behave differently than raw inflate.
+        // ResetStreamForLeftoverInput() checks if it's a GZpin member
+        
+        //* --- For GZip and ZLib, there are more checks needed for their headers and trailers.
+        //* [Reference from Mark Adler's repo: inflate.h
+        /* State transitions
+            Process header:
+                HEAD -> (gzip) or (zlib) or (raw)
+                (gzip) -> FLAGS -> TIME -> OS -> EXLEN -> EXTRA -> NAME -> COMMENT ->
+                            HCRC -> TYPE
+                (zlib) -> DICTID or TYPE
+                DICTID -> DICT -> TYPE
+                (raw) -> TYPEDO
+            Read deflate blocks:
+                    TYPE -> TYPEDO -> STORED or TABLE or LEN_ or CHECK
+                    STORED -> COPY_ -> COPY -> TYPE
+                    TABLE -> LENLENS -> CODELENS -> LEN_
+                    LEN_ -> LEN
+            Read deflate codes in fixed or dynamic block:
+                        LEN -> LENEXT or LIT or TYPE
+                        LENEXT -> DIST -> DISTEXT -> MATCH -> LEN
+                        LIT -> LEN
+            Process trailer:
+                CHECK -> LENGTH -> DONE
+        */
         if (Finished()) // ------------AQUI SE CHECA LO DEL HEADER DEL SIGUIENTE BLOQUE PARA VER SI ES UN GZIP MEMBER
                         //  *Maybe not just there but in every part where EnfOfBlock is checked
         {
             //Check if it is completely necessary to do this check here
             return (!_input.NeedsInput() && IsGzipStream()) ? ResetStreamForLeftoverInput() : true;
         }
-
+        //Read deflate blocks:
         if (_state == InflaterState.ReadingBFinal)
         {
             // reading bfinal bit
@@ -383,7 +404,6 @@ internal sealed class Inflater
             _finalByte = _input.GetBits(1);
             _state = InflaterState.ReadingBType;
         }
-
         if (_state == InflaterState.ReadingBType)
         {
             // Need 2 bits
@@ -418,7 +438,7 @@ internal sealed class Inflater
         {
             if (_state < InflaterState.DecodeTop)
             {
-                // we are reading the header
+                // For decoding a literal (char/match) in a compressed block
                 result = DecodeDynamicBlockHeader();
             }
             else

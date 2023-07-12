@@ -32,6 +32,7 @@ namespace Microsoft.ManagedZLib
         DecodingUncompressed = 20,
 
         // These three apply only to GZIP
+        //Just if a negative window bit's number is received
         StartReadingFooter = 21,     // (Initialisation for reading footer)
         ReadingFooter = 22,
         VerifyingFooter = 23,

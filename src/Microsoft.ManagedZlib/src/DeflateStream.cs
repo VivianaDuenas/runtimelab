@@ -3,12 +3,14 @@
 
 using System;
 using System.Buffers;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Microsoft.ManagedZLib;
 
@@ -18,11 +20,12 @@ public partial class DeflateStream : Stream
     private Stream _stream;
     private Inflater? _inflater;
     private Deflater? _deflater;
-    private byte[]? _buffer;
+    private byte[] _buffer;
     private int _activeAsyncOperation; // 1 == true, 0 == false
     private CompressionMode _mode;
     private bool _leaveOpen;
     private bool _wroteBytes;
+    //private int _asyncOperations;
 
     internal DeflateStream(Stream stream, CompressionMode mode, long uncompressedSize) : this(stream, mode, leaveOpen: false, ManagedZLib.Deflate_DefaultWindowBits, uncompressedSize)
     {
@@ -66,7 +69,7 @@ public partial class DeflateStream : Stream
                 _inflater = new Inflater(windowBits, uncompressedSize);
                 _stream = stream;
                 _mode = CompressionMode.Decompress;
-                _leaveOpen = leaveOpen;
+                //_leaveOpen = leaveOpen;
                 break;
 
             case CompressionMode.Compress:
@@ -76,6 +79,7 @@ public partial class DeflateStream : Stream
             default:
                 throw new ArgumentException("ArgumentOutOfRange_Enum - Enum value was out of legal range.", nameof(mode));
         }
+        _buffer = new byte[DefaultBufferSize]; //Instead of using array pool in Read** When tests working check if it's possible a change back
     }
 
     /// <summary>
@@ -83,6 +87,7 @@ public partial class DeflateStream : Stream
     /// </summary>
     internal DeflateStream(Stream stream, CompressionLevel compressionLevel, bool leaveOpen, int windowBits)
     {
+        _buffer = new byte[DefaultBufferSize]; //Instead of using array pool in Read** When tests working check if it's possible a change back
         ArgumentNullException.ThrowIfNull(stream);
 
         InitializeDeflater(stream, leaveOpen, windowBits, compressionLevel);
@@ -106,6 +111,7 @@ public partial class DeflateStream : Stream
         InitializeBuffer();
     }
 
+    //In case we decide to use this instead of initializing _buffer in the constructor as a regular byte array
     [MemberNotNull(nameof(_buffer))]
     private void InitializeBuffer()
     {
@@ -229,80 +235,68 @@ public partial class DeflateStream : Stream
     {
         EnsureDecompressionMode();
         EnsureNotDisposed();
-        // Vivi's notes> Sanity check - (ES) maybe no haya que crea un arreglo para el byte
+        // Sanity check
         // Try to read a single byte from zlib without allocating an array, pinning an array, etc.
         // If zlib doesn't have any data, fall back to the base stream implementation, which will do that.
-        byte[] b = new byte[1];
         Debug.Assert(_inflater != null);
-        return _inflater.Inflate(b)!=0 ? b[0] : base.ReadByte();
+        byte b = default;
+        return Read(new Span<byte>(ref b)) == 1 ? b : -1;
     }
 
     public override int Read(byte[] buffer, int offset, int count)
     {
         ValidateBufferArguments(buffer, offset, count);
-        return ReadCore(new Span<byte>(buffer, offset, count));
+        return Read(new Span<byte>(buffer, offset, count));
     }
 
     public override int Read(Span<byte> buffer)
     {
-        if (GetType() != typeof(DeflateStream))
-        {
-            // DeflateStream is not sealed, and a derived type may have overridden Read(byte[], int, int) prior
-            // to this Read(Span<byte>) overload being introduced.  In that case, this Read(Span<byte>) overload
-            // should use the behavior of Read(byte[],int,int) overload.
-            return base.Read(buffer);
-        }
-        else
-        {
-            return ReadCore(buffer);
-        }
-    }
-
-    internal int ReadCore(Span<byte> buffer)
-    {
         EnsureDecompressionMode();
         EnsureNotDisposed();
-        EnsureBufferInitialized();
+        //EnsureBufferInitialized(); --> Initialization done on constructor, might change it later to this
         Debug.Assert(_inflater != null);
 
+        int initialLength = buffer.Length;
         int bytesRead;
         while (true)
         {
             // Try to decompress any data from the inflater into the caller's buffer.
             // If we're able to decompress any bytes, or if decompression is completed, we're done.
             bytesRead = _inflater.Inflate(buffer);
-            if (bytesRead != 0 || InflatorIsFinished)
+            buffer = buffer.Slice(bytesRead);
+
+            if (bytesRead != 0 || _inflater.Finished())
             {
+                // if we finished decompressing, we can't have anything left in the outputwindow.
+                Debug.Assert(_inflater.AvailableOutput == 0, "We should have copied all stuff out!");
                 break;
             }
 
             // We were unable to decompress any data.  If the inflater needs additional input
             // data to proceed, read some to populate it.
-            if (_inflater.NeedsInput())
+            
+            int bytes = _stream!.Read(_buffer, 0, _buffer.Length);
+            if (bytes <= 0)
             {
-                int n = _stream.Read(_buffer, 0, _buffer.Length);
-                if (n <= 0)
+                // - Inflater didn't return any data although a non-empty output buffer was passed by the caller.
+                // - More input is needed but there is no more input available.
+                // - Inflation is not finished yet.
+                // - Provided input wasn't completely empty
+                // In such case, we are dealing with a truncated input stream.
+                if (s_useStrictValidation && !buffer.IsEmpty && !_inflater.Finished() && _inflater.NonEmptyInput())
                 {
-                    // - Inflater didn't return any data although a non-empty output buffer was passed by the caller.
-                    // - More input is needed but there is no more input available.
-                    // - Inflation is not finished yet.
-                    // - Provided input wasn't completely empty
-                    // In such case, we are dealing with a truncated input stream.
-                    if (s_useStrictValidation && !buffer.IsEmpty && !_inflater.Finished() && _inflater.NonEmptyInput())
-                    {
-                        ThrowTruncatedInvalidData();
-                    }
-                    break;
+                    ThrowTruncatedInvalidData();
                 }
-                else if (n > _buffer.Length)
-                {
-                    ThrowGenericInvalidData();
-                }
-                else
-                {
-                    _inflater.SetInput(_buffer, 0, n);
-                }
+                break;
             }
+            else if (bytes > _buffer.Length)
+            {
+                // The stream is either malicious or poorly implemented and returned a number of
+                // bytes larger than the buffer supplied to it.
+                ThrowGenericInvalidData();
+            }
+                
+            _inflater.SetInput(_buffer, 0, bytes);
 
             if (buffer.IsEmpty)
             {
@@ -317,7 +311,7 @@ public partial class DeflateStream : Stream
             }
         }
 
-        return bytesRead;
+        return initialLength - buffer.Length; // bytesRead
     }
 
     private bool InflatorIsFinished =>
@@ -371,12 +365,19 @@ public partial class DeflateStream : Stream
 
     public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
+        //if (_asyncOperations != 0)
+        //    throw new InvalidOperationException("InvalidBeginCall - Only one asynchronous reader or writer is allowed time at one time.");
+
         ValidateBufferArguments(buffer, offset, count);
         return ReadAsyncMemory(new Memory<byte>(buffer, offset, count), cancellationToken).AsTask();
     }
 
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default(CancellationToken))
     {
+        // We use this checking order for compat to earlier versions:
+        //if (_asyncOperations != 0)
+        //    throw new InvalidOperationException("InvalidBeginCall - Only one asynchronous reader or writer is allowed time at one time.");
+
         if (GetType() != typeof(DeflateStream))
         {
             // Ensure that existing streams derived from DeflateStream and that override ReadAsync(byte[],...)
@@ -400,7 +401,9 @@ public partial class DeflateStream : Stream
             return ValueTask.FromCanceled<int>(cancellationToken);
         }
 
-        EnsureBufferInitialized();
+        //EnsureBufferInitialized(); // Creates the buffer through Array pool if not created yet
+                                     // We do it now through the constructor but I'll comment this in case is better to have it 
+                                     // as an arrat pool
         Debug.Assert(_inflater != null);
 
         return Core(buffer, cancellationToken);
@@ -657,7 +660,8 @@ public partial class DeflateStream : Stream
         }
     }
 
-    protected override void Dispose(bool disposing)
+    protected override void Dispose(bool disposing) //Vivi> This maybe be the only dispose we need, after handling streams
+                                                    //Not one for de/inflater
     {
         try
         {
@@ -690,7 +694,8 @@ public partial class DeflateStream : Stream
                     byte[]? buffer = _buffer;
                     if (buffer != null)
                     {
-                        _buffer = null;
+                        //_buffer = null;
+                        Array.Clear(_buffer, 0, _buffer.Length);
                         if (!AsyncOperationIsActive)
                         {
                             ArrayPool<byte>.Shared.Return(buffer);
@@ -743,7 +748,8 @@ public partial class DeflateStream : Stream
                         byte[]? buffer = _buffer;
                         if (buffer != null)
                         {
-                            _buffer = null;
+                            //Closest to buffer = null, since _buffer is no longer nullable 
+                            Array.Clear(_buffer, 0, _buffer.Length);
                             if (!AsyncOperationIsActive)
                             {
                                 ArrayPool<byte>.Shared.Return(buffer);
