@@ -28,28 +28,6 @@ internal sealed class InputBuffer
     /// <summary>Total bytes available in the input buffer.</summary>
     public int AvailableBytes => _buffer.Length + (_bitsInBuffer / 8);
 
-    /*
-     * ---------------------For checking later, check if it's necessary to keep this method along with
-     * ------ResetStreamForLeftoverInput() for GZip and ZLib scenarios that behave differently than raw inflate
-     *  ResetStreamForLeftoverInput() checks if it's a GZpin member
-     * private int ReadOutput(Span<byte> buffer, int bytesRead)
-    {
-        //Vivi's notes> Here we will pass a Span and take away "length" parameter
-        if (ReadInflateOutput(buffer bytesCopied, FlushCode.NoFlush, out bytesRead) == ErrorCode.StreamEnd)
-        {
-            if (!_input.NeedsInput() && IsGzipStream())
-            {
-                _finished = ResetStreamForLeftoverInput();
-            }
-            else
-            {
-                _finished = true;
-            }
-        }
-        return bytesRead;
-    }
-      */
-
     /// <summary>Ensure that count bits are in the bit buffer.</summary>
     /// <param name="count">Can be up to 16.</param>
     /// <returns>Returns false if input is not sufficient to make this true.</returns>

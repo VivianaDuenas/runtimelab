@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -38,9 +39,9 @@ public class MyClassTests
     [MemberData(nameof(UncompressedTestFiles))]
     public async Task Read(string testFile)
     {
-        var uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
-        var compressedStream = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(testFile));
-        using var decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
+        LocalMemoryStream uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
+        LocalMemoryStream compressedStream = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(testFile));
+        using Stream decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
         var decompressorOutput = new MemoryStream();
 
         int _bufferSize = 1024;
@@ -49,10 +50,10 @@ public class MyClassTests
         int retCount;
         while (!finished)
         {
-            retCount = await decompressor.ReadAsync(bytes, 0, _bufferSize);
+            retCount = decompressor.Read(bytes, 0, _bufferSize);
 
             if (retCount != 0)
-                await decompressorOutput.WriteAsync(bytes, 0, retCount);
+                decompressorOutput.Write(bytes, 0, retCount);
             else
                 finished = true;
         }
@@ -68,5 +69,65 @@ public class MyClassTests
         {
             Assert.Equal(uncompressedStreamBytes[i], decompressorOutputBytes[i]);
         }
+    }
+
+    [Fact]
+    public void Test()
+    {
+        using MemoryStream original = new MemoryStream();
+
+        byte[] originalBytes = new byte[] { 0x4C, 0x4C, 0x4F, 0x52, 0x41 };
+        byte[] compressedBytes = new byte[10];
+        byte[] finalBytes = new byte[10];
+        original.Write(originalBytes);
+
+        MemoryStream originalData = new();
+        originalData.Write(originalBytes);
+        originalData.Position = 0;
+
+        MemoryStream compressedDestination = new();
+        using (System.IO.Compression.DeflateStream compressor = new System.IO.Compression.DeflateStream(compressedDestination, System.IO.Compression.CompressionMode.Compress, leaveOpen: true))
+        {
+            originalData.CopyTo(compressor);
+        }
+        compressedDestination.Position = 0;
+        Console.WriteLine($"CompressedDestination size: {compressedDestination.Length}");
+        compressedDestination.ReadAtLeast(compressedBytes, 5, throwOnEndOfStream: false);
+        compressedDestination.Position = 0;
+
+        MemoryStream uncompressedDestination = new();
+        using (var decompressor = new DeflateStream(compressedDestination, CompressionMode.Decompress, leaveOpen: true))
+        {
+            decompressor.CopyTo(uncompressedDestination);
+        }
+        uncompressedDestination.Position = 0;
+        //Console.WriteLine($"UncompressedDestination size: {uncompressedDestination.Length}");
+        //uncompressedDestination.ReadAtLeast(finalBytes, 5, throwOnEndOfStream: false);
+
+        //Console.WriteLine($"Uncompressed: {Encoding.ASCII.GetString(originalBytes)}");
+        //Console.WriteLine($"Compressed: ");
+        //Print(compressedBytes);
+        //Console.WriteLine($"Final: {Encoding.ASCII.GetString(finalBytes)}");
+
+        originalData.Position = 0;
+        compressedDestination.Position = 0;
+
+        byte[] uncompressedStreamBytes = originalData.ToArray();
+        byte[] decompressorOutputBytes = uncompressedDestination.ToArray();
+
+        Assert.Equal(uncompressedStreamBytes.Length, decompressorOutputBytes.Length);
+        for (int i = 0; i < uncompressedStreamBytes.Length; i++)
+        {
+            Assert.Equal(uncompressedStreamBytes[i], decompressorOutputBytes[i]);
+        }
+    }
+
+    private void Print(byte[] arr)
+    {
+        foreach (byte b in arr)
+        {
+            Console.Write($"{b}, ");
+        }
+        Console.WriteLine();
     }
 }

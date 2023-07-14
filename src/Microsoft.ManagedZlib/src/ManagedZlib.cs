@@ -105,6 +105,8 @@ public static class ManagedZLib
     {
         Deflated = 8 //Vivi's notes: Default compression method - deflate
     }
+    // Raw deflate is actually the more basic format for defalte and inflate. The other ones like GZip and ZLib have a wrapper around
+    // the data/deflate block.
     /// <summary>
     /// <p><strong>From the ZLib manual:</strong></p>
     /// <p>ZLib's <code>windowBits</code> parameter is the base two logarithm of the window size (the size of the history buffer).

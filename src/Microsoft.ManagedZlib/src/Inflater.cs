@@ -67,14 +67,14 @@ internal sealed class Inflater
 
 
 
-    private const int MinWindowBits = -15;              // WindowBits must be between -8..-15 to ignore the header, 8..15 for
-    private const int MaxWindowBits = 47;               // zlib headers, 24..31 for GZip headers, or 40..47 for either Zlib or GZip
+    internal const int MinWindowBits = -15;              // WindowBits must be between -8..-15 to ignore the header, 8..15 for
+    internal const int MaxWindowBits = 47;               // zlib headers, 24..31 for GZip headers, or 40..47 for either Zlib or GZip
 
     private bool _nonEmptyInput;                        // Whether there is any non empty input
     //private bool _finished;                             // Whether the end of the stream has been reached
     //private bool _isDisposed;                           // Prevents multiple disposals
     private readonly int _windowBits;                   // The WindowBits parameter passed to Inflater construction
-    private ZLibStreamHandle _zlibStream;    // The handle to the primary underlying zlib stream -- Vivi's note: TBD if necessary
+    private ZLibStreamHandle _zlibStream = new ZLibStreamHandle();    // The handle to the primary underlying zlib stream -- Vivi's note: TBD if necessary
 
     //Vivi's note> This structure, if necessary, will be re-design because before it was implemented
     // for pointer handling. - On the meantime there's a rough struct replacing the old one in ManagedZLib- 
@@ -132,18 +132,22 @@ internal sealed class Inflater
     internal Inflater(int windowBits, long uncompressedSize = -1)
     {
         _input = new InputBuffer();
+
+        // For window bits, if it's a negative number, its raw deflate format, with no additional headers.
+        // Then the window size bit remain the same but positive.
+        // If it's Gzip, then to the positive number 16 is added
+        // If it can be either Gzip or ZLib, then 32 is added
+        // That's why the minimum bit capacity is -15 and the maximum is 47
+        // The regular range is from 8 to 15 and then to it can be added 16 or 32 corresponding 
+        // the cases stated before.
+        _windowBits = InflateInit(windowBits);
         // Initializing window size according the type of deflate (window limits - 32k or 64k)
-        _output = _deflate64? new OutputBuffer() : new OutputBuffer();
+        _output = _deflate64? new OutputBuffer() : new OutputBuffer(windowBits);
         //Vivi's notes> Review if it's really necessary to reserve this much like an array of bytes
         _codeList = new byte[IHuffmanTree.MaxLiteralTreeElements + IHuffmanTree.MaxDistTreeElements];
         _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];
-
-        Debug.Assert(windowBits >= MinWindowBits && windowBits <= MaxWindowBits);
-        //_finished = false;
         _nonEmptyInput = false;
-        //_isDisposed = false;
-        _windowBits = windowBits;
-        InflateInit(windowBits);
+        //Initial state of the state machine
         _state = InflaterState.ReadingBFinal; // BFINAL - First bit of the block
         _uncompressedSize = uncompressedSize;
     }
@@ -156,6 +160,13 @@ internal sealed class Inflater
         _deflate64= deflate64;
     }
 
+    private int InflateInit(int windowBits) //Does not perfom decompression - for sanity checks vefore actually calling Inflate()
+    {
+        Debug.Assert(windowBits >= MinWindowBits && windowBits <= MaxWindowBits);
+        //-15 to -1 or 0 to 47
+        return (windowBits < 0) ? -windowBits : windowBits &= 15;
+    }
+
     /// <summary>
     /// Returns true if the end of the stream has been reached.
     /// </summary>
@@ -166,11 +177,11 @@ internal sealed class Inflater
     // You would just slice it from he caller like this: spanUsed.Slice(offset, length)
     public int Inflate(Span<byte> buffer) 
     {
-        int bytesRead = InflateVerified(buffer);
-
         // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
         if (buffer.Length == 0)
             return 0;
+
+        int bytesRead = InflateVerified(buffer);
 
         //Vivi's notes> Sanity checks
         Debug.Assert(buffer != null, "Can't pass in a null output buffer!");
@@ -210,19 +221,19 @@ internal sealed class Inflater
                     //Done reading input
                     _state = InflaterState.Done;
                     _output.ClearBytesUsed();
-                }
-                if (bytesRead > 0)
-                {
-                    bufferBytes = bufferBytes.Slice(bytesRead);
-                    countCopied += bytesRead;
-                }
-
-                if (bufferBytes.IsEmpty)
-                {
-                    // filled in the bytes buffer
-                    break;
-                }
+                }  
             } //Pending to add the decode() -------------------------- in progress ------------
+            if (bytesRead > 0)
+            {
+                bufferBytes = bufferBytes.Slice(bytesRead);
+                countCopied += bytesRead;
+            }
+
+            if (bufferBytes.IsEmpty)
+            {
+                // filled in the bytes buffer
+                break;
+            }
         } while (!Finished() && Decode()) ; //Will return 0 when more input is need
 
         return countCopied;
@@ -275,53 +286,59 @@ internal sealed class Inflater
     /// It would have created a ZStream to handle inflation
     /// BUT now it creates the output buffers instead
     /// </summary>
-    [MemberNotNull(nameof(_zlibStream))]
-    private void InflateInit(int windowBits) //Does not perfom decompression - for sanity checks vefore actually calling Inflate()
-    {
-        // API's entry point -- This goes to the InflateInt2_ of the PInvoke.
-        // In this managed version, I'll try to do all the initializations required 
-        // and error checkings here (Like the algorithm does in InflateInit)
-        // for calling my managed Infate() afterwards.
-        // Vivi's notes(ES)> Lit en el codigo de C, init solo llama  Init2_ 
+    //[MemberNotNull(nameof(_zlibStream))]
+    //private void InflateInit(int windowBits) //Does not perfom decompression - for sanity checks vefore actually calling Inflate()
+    //{
+    //    if (windowBits < 0)
+    //    {
+    //        if (windowBits < -15)
+    //        {
+    //            Debug.Assert(windowBits >= MinWindowBits && windowBits <= MaxWindowBits);
+    //        }
+    //        windowBits = -windowBits; // RawDeflate - no wrapper
+    //    }
+    //    else 
+    //    {
+    //        //Turning it 15
+    //        windowBits = 4 >> windowBits;
+    //        if (windowBits < 48)
+    //            windowBits &= 15;
+    //    }
 
-        //--------------I'll have to check how to do this error checking because I do think 
-        //CreateZLibStreamForInflate is not necessary anymore, at least if everything is going to be done 
-        //in the input/output classes
+    //    ErrorCode error;
+    //    try
+    //    {
+    //        //Vivi'a notes> Instead of calling ManagedZLib.CreateZLibStreamForInflate(out _zlibStream, windowBits);
+    //        //This can be the new InflateInit2_
+    //        error = CreateZLibStreamForInflate(out _zlibStream, windowBits);
+    //    }
+    //    catch (Exception exception) // could not load the ZLib dll ------ Vivi's notes> Not useful anymore to a managed implementation
+    //    {
+    //        throw new ZLibException("ZLibErrorDLLLoadError - The underlying compression routine could not be loaded correctly.", exception);
+    //    }
+    //    // --------- Error checker----- Vivi's notes> This is basically (now) a wrapper for erro checking
+    //    switch (error)
+    //    {
+    //        case ErrorCode.Ok:           // Successful initialization
+    //            return;
 
-        ErrorCode error;
-        try
-        {
-            //Vivi'a notes> Instead of calling ManagedZLib.CreateZLibStreamForInflate(out _zlibStream, windowBits);
-            //This can be the new InflateInit2_
-            error = CreateZLibStreamForInflate(out _zlibStream, windowBits);
-        }
-        catch (Exception exception) // could not load the ZLib dll ------ Vivi's notes> Not useful anymore to a managed implementation
-        {
-            throw new ZLibException("ZLibErrorDLLLoadError - The underlying compression routine could not be loaded correctly.", exception);
-        }
-        // --------- Error checker----- Vivi's notes> This is basically (now) a wrapper for erro checking
-        switch (error)
-        {
-            case ErrorCode.Ok:           // Successful initialization
-                return;
+    //        case ErrorCode.MemError:     // Not enough memory
+    //            throw new ZLibException("ZLibErrorNotEnoughMemory - The underlying compression routine could not reserve sufficient memory.",
+    //                "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
 
-            case ErrorCode.MemError:     // Not enough memory
-                throw new ZLibException("ZLibErrorNotEnoughMemory - The underlying compression routine could not reserve sufficient memory.",
-                    "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
+    //        case ErrorCode.VersionError: //zlib library is incompatible with the version assumed
+    //            throw new ZLibException("ZLibErrorVersionMismatch - The version of the underlying compression routine does not match expected version.",
+    //                "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
 
-            case ErrorCode.VersionError: //zlib library is incompatible with the version assumed
-                throw new ZLibException("ZLibErrorVersionMismatch - The version of the underlying compression routine does not match expected version.",
-                    "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
+    //        case ErrorCode.StreamError:  // Parameters are invalid
+    //            throw new ZLibException("ZLibErrorIncorrectInitParameters - The underlying compression routine received incorrect initialization parameters.",
+    //                "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
 
-            case ErrorCode.StreamError:  // Parameters are invalid
-                throw new ZLibException("ZLibErrorIncorrectInitParameters - The underlying compression routine received incorrect initialization parameters.",
-                    "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
-
-            default:
-                throw new ZLibException("ZLibErrorUnexpected - The underlying compression routine returned an unexpected error code.",
-                    "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
-        }
-    }
+    //        default:
+    //            throw new ZLibException("ZLibErrorUnexpected - The underlying compression routine returned an unexpected error code.",
+    //                "inflateInit2_", (int)error, _zlibStream.GetErrorMessage());
+    //    }
+    //}
 
     internal bool IsGzipStream() => _windowBits >= 24 && _windowBits <= 31;
 

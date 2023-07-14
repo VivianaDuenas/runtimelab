@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Diagnostics;
+using static Microsoft.ManagedZLib.ManagedZLib.ZLibStreamHandle;
 
 namespace Microsoft.ManagedZLib;
 
@@ -32,12 +33,8 @@ internal sealed class OutputBuffer
     /// </summary>
     internal OutputBuffer(int windowBits)
     {
-        //I still have to check if this actually necessary
-        //  WindowSize = 2 ^ windowBits;
-        //  WindowMask = WindowSize - 1;
-        // _window = new byte[WindowSize];
-        WindowSize = 262144;
-        WindowMask = 262143;
+        WindowSize = 1 << windowBits; //logaritmic base 2 required - It's like 2^windowBits
+        WindowMask = WindowSize - 1;
         _window = new byte[WindowSize];
     }
     internal OutputBuffer() //deflate64
