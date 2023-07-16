@@ -99,7 +99,7 @@ public class MyClassTests
         using (var decompressor = new DeflateStream(compressedDestination, CompressionMode.Decompress, leaveOpen: true))
         {
             decompressor.CopyTo(uncompressedDestination);
-        }
+        } //Cannot access a close stream error*
         uncompressedDestination.Position = 0;
         //Console.WriteLine($"UncompressedDestination size: {uncompressedDestination.Length}");
         //uncompressedDestination.ReadAtLeast(finalBytes, 5, throwOnEndOfStream: false);

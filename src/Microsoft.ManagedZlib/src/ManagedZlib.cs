@@ -76,7 +76,7 @@ public static class ManagedZLib
     public enum BlockType // For inflate (RFC1951 deflate format)
     {
         Uncompressed = 0,
-        Static = 1,
+        Static = 1, //Fixed
         Dynamic = 2
     }
 
