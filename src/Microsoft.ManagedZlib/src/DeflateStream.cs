@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -69,7 +70,7 @@ public partial class DeflateStream : Stream
                 _inflater = new Inflater(windowBits, uncompressedSize);
                 _stream = stream;
                 _mode = CompressionMode.Decompress;
-                //_leaveOpen = leaveOpen;
+                _leaveOpen = leaveOpen;
                 break;
 
             case CompressionMode.Compress:
@@ -83,6 +84,10 @@ public partial class DeflateStream : Stream
         // For compressing this will vary depending on the Level of compression ask.
         // Reading more data at a time is more efficient
         _buffer = new byte[DefaultBufferSize]; //Instead of using array pool in Read** When tests working check if it's possible a change back
+        //InflateInit2 - set the reference of the underlying stream, into input buffer
+        //Debug.Assert(_inflater != null);
+        //_inflater.SetInput(_buffer);
+
     }
 
     /// <summary>
@@ -121,15 +126,6 @@ public partial class DeflateStream : Stream
         Debug.Assert(_buffer == null);
         _buffer = ArrayPool<byte>.Shared.Rent(DefaultBufferSize);
     }
-
-    //[MemberNotNull(nameof(_buffer))]
-    //private void EnsureBufferInitialized()
-    //{
-    //    if (_buffer == null)
-    //    {
-    //        InitializeBuffer();
-    //    }
-    //}
 
     public Stream BaseStream => _stream;
 
@@ -249,6 +245,9 @@ public partial class DeflateStream : Stream
     public override int Read(byte[] buffer, int offset, int count)
     {
         ValidateBufferArguments(buffer, offset, count);
+        Debug.Assert(_inflater != null);
+
+        //Input class referring to the stream passed through the constructor
         return Read(new Span<byte>(buffer, offset, count));
     }
 
@@ -268,7 +267,6 @@ public partial class DeflateStream : Stream
             EnsureNotDisposed();
             Debug.Assert(_inflater != null);
             Debug.Assert(_buffer != null);
-
             int bytesRead;
 
             while (true)
@@ -288,8 +286,42 @@ public partial class DeflateStream : Stream
                     break; //Break outside of the loop
                 }
 
-                if (buffer.IsEmpty) //If it's not filled
+                // We were unable to decompress any data.  If the inflater needs additional input
+                // data to proceed, read some to populate it.
+                if (_inflater.NeedsInput())
                 {
+                    int n = _stream.Read(_buffer, 0, _buffer.Length);
+                    if (n <= 0)
+                    {
+                        // - Inflater didn't return any data although a non-empty output buffer was passed by the caller.
+                        // - More input is needed but there is no more input available.
+                        // - Inflation is not finished yet.
+                        // - Provided input wasn't completely empty
+                        // In such case, we are dealing with a truncated input stream.
+                        if (s_useStrictValidation && !buffer.IsEmpty && !_inflater.Finished() && _inflater.NonEmptyInput())
+                        {
+                            ThrowTruncatedInvalidData();
+                        }
+                        break;
+                    }
+                    else if (n > _buffer.Length)
+                    {
+                        ThrowGenericInvalidData();
+                    }
+                    else
+                    {
+                        _inflater.SetInput(_buffer, 0, n);
+                    }
+                }
+
+                if (buffer.IsEmpty)
+                {
+                    // The caller provided a zero-byte buffer.  This is typically done in order to avoid allocating/renting
+                    // a buffer until data is known to be available.  We don't have perfect knowledge here, as _inflater.Inflate
+                    // will return 0 whether or not more data is required, and having input data doesn't necessarily mean it'll
+                    // decompress into at least one byte of output, but it's a reasonable approximation for the 99% case.  If it's
+                    // wrong, it just means that a caller using zero-byte reads as a way to delay getting a buffer to use for a
+                    // subsequent call may end up getting one earlier than otherwise preferred.
                     Debug.Assert(bytesRead == 0);
                     break;
                 }

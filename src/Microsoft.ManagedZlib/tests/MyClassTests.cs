@@ -110,7 +110,6 @@ public class MyClassTests
         //Console.WriteLine($"Final: {Encoding.ASCII.GetString(finalBytes)}");
 
         originalData.Position = 0;
-        compressedDestination.Position = 0;
 
         byte[] uncompressedStreamBytes = originalData.ToArray();
         byte[] decompressorOutputBytes = uncompressedDestination.ToArray();

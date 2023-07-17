@@ -124,6 +124,13 @@ internal sealed class Inflater
             0x06, 0x16, 0x0e, 0x1e, 0x01, 0x11, 0x09, 0x19, 0x05, 0x15, 0x0d, 0x1d,
             0x03, 0x13, 0x0b, 0x1b, 0x07, 0x17, 0x0f, 0x1f
     };
+    //Setting the windows bits
+    private static int InflateInit(int windowBits) //Does not perfom decompression - for sanity checks vefore actually calling Inflate()
+    {
+        Debug.Assert(windowBits >= MinWindowBits && windowBits <= MaxWindowBits);
+        //-15 to -1 or 0 to 47
+        return (windowBits < 0) ? -windowBits : windowBits &= 15;
+    }
 
     /// <summary>
     /// Initialized the Inflater with the given windowBits size
@@ -131,7 +138,6 @@ internal sealed class Inflater
     internal Inflater(int windowBits, long uncompressedSize = -1)
     {
         _input = new InputBuffer();
-
         // For window bits, if it's a negative number, its raw deflate format, with no additional headers.
         // Then the window size bit remain the same but positive.
         // If it's Gzip, then to the positive number 16 is added
@@ -161,12 +167,6 @@ internal sealed class Inflater
         _deflate64= deflate64;
     }
 
-    private int InflateInit(int windowBits) //Does not perfom decompression - for sanity checks vefore actually calling Inflate()
-    {
-        Debug.Assert(windowBits >= MinWindowBits && windowBits <= MaxWindowBits);
-        //-15 to -1 or 0 to 47
-        return (windowBits < 0) ? -windowBits : windowBits &= 15;
-    }
 
     /// <summary>
     /// Returns true if the end of the stream has been reached.
@@ -193,27 +193,27 @@ internal sealed class Inflater
 
     public int InflateVerified(Span<byte> bufferBytes)
     {
-        
+
         int bytesRead = 0;
-        int copiedAux = -1;
+        // This division of _uncompressedSize is for GZip
+        // For Raw Inflate, it is not necessary to compare the inflate count (bytes read so far)
+        // with anything else, besides cheching is a valid number fr either finish the loop or
+        // refill the buffer that refers to the underlying deflate stream buffer. (Default size: 8192)
         do
         {
             int copied = 0;
-             // Before actually add the bytes read to the local variable, 
-             // we check if the value is valid thorugh 'copied'
-            if (copiedAux == -1) //Initial data reading
+            if (_uncompressedSize == -1) //Initial data reading
             {
-                //Read Output will be de wrapper for error checking and _output.CopyTo()
+                //For Raw Inflate, this is suppose to enter this
                 copied = ReadOutput(bufferBytes);
-                copiedAux = bytesRead; //I think this was the mistake
             }
             else
             {
                 // This might be specially for GZip - Since it's the only one changing _uncompressedSize
-                // through the constructor -it's readonly-
-                if (copiedAux > _currentInflatedCount)
+                // through the constructor -it's a readonly field-
+                if (_uncompressedSize > _currentInflatedCount)
                 {
-                    int newLength = (int)Math.Min(bufferBytes.Length, copiedAux - _currentInflatedCount);
+                    int newLength = (int)Math.Min(bufferBytes.Length, _uncompressedSize - _currentInflatedCount);
                     bufferBytes = bufferBytes.Slice(newLength);
                     copied = ReadOutput(bufferBytes); //Vivi's notes> Here you would pass a slice of the Span
                     _currentInflatedCount += copied;
@@ -225,6 +225,8 @@ internal sealed class Inflater
                     _output.ClearBytesUsed();
                 }  
             }
+            // Before actually add the bytes read to the local variable, 
+            // we check if the value is valid 
             if (copied > 0)
             {
                 bufferBytes = bufferBytes.Slice(copied);
@@ -249,10 +251,10 @@ internal sealed class Inflater
 
         //Inflate state machine
         _finished = Decode();
-        
+
         //Final copying of the uncompressed data
         // Keeps looping until the decom
-        _output.CopyTo(outputBytes); //This has error checkers
+        bytesRead = _output.CopyTo(outputBytes); //This has error checkers
 
         return bytesRead;
     }
