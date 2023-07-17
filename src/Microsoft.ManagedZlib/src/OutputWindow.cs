@@ -40,7 +40,7 @@ internal sealed class OutputWindow
     {
         WindowSize = 1 << windowBits; //logaritmic base 2 required - It's like 2^windowBits
         WindowMask = WindowSize - 1;
-        _window = new byte[WindowSize*2];
+        _window = new byte[WindowSize];
     }
     internal OutputWindow() //deflate64
     {
@@ -171,7 +171,7 @@ internal sealed class OutputWindow
         {
             // we can copy all the decompressed bytes out
             copy_lastIndex = _lastIndex; //Last index auxiliar
-            usersOutput = usersOutput.Slice(0, _bytesUsed);
+            usersOutput = usersOutput.Slice(0,_bytesUsed);
         }
         else
         {

@@ -81,7 +81,7 @@ internal sealed class Inflater
     // [Commented old code] private ManagedZLib.BufferHandle _inputBufferHandle = default;            // The handle to the buffer that provides input to _zlibStream
     //private readonly long _uncompressedSize;
     //private long _currentInflatedCount;
-    private bool _finished;
+    private bool _couldDecode;
     private object SyncLock => this;                    // Used to make writing to unmanaged structures atomic
     public bool NeedsInput() => _input.NeedsInput();
     public int AvailableOutput => _output.AvailableBytes;//This could be:  if we decide to make a struct instead of classes
@@ -153,7 +153,7 @@ internal sealed class Inflater
         _codeList = new byte[IHuffmanTree.MaxLiteralTreeElements + IHuffmanTree.MaxDistTreeElements];
         _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];
         _nonEmptyInput = false;
-        _finished = false;
+        _couldDecode = false; //After finishing decoding
         //Initial state of the state machine
         _state = InflaterState.ReadingBFinal; // BFINAL - First bit of the block
         _uncompressedSize = uncompressedSize;
@@ -171,7 +171,7 @@ internal sealed class Inflater
     /// <summary>
     /// Returns true if the end of the stream has been reached.
     /// </summary>
-    public bool Finished() =>  _finished || _state == InflaterState.Done || _state == InflaterState.VerifyingFooter;
+    public bool Finished() =>  _state == InflaterState.Done || _state == InflaterState.VerifyingFooter;
 
     // Vivi's notes> If there's s need of a subset of the buffer,
     // instead of passing a length and offset along with the buffer (like before)
@@ -186,7 +186,7 @@ internal sealed class Inflater
 
         //Vivi's notes> Sanity checks
         Debug.Assert(buffer != null, "Can't pass in a null output buffer!");
-        Debug.Assert(bytesRead == 0 || bytesRead == 1);
+        //Debug.Assert(bytesRead == 0 || bytesRead == 1);
 
         return bytesRead;//bytesRead != 0 in the caller that expects a bool
     }
@@ -235,10 +235,10 @@ internal sealed class Inflater
 
             if (bufferBytes.IsEmpty)
             {
-                // filled in the bytes buffer
+                // filled in the bytes buffer - We reached the end
                 break;
             }
-        } while (!Finished()) ; //Will return 0 when more input is need
+        } while (!Finished()&& _couldDecode) ; //Will return 0 when more input is need
 
         return bytesRead;
     }
@@ -247,58 +247,15 @@ internal sealed class Inflater
         // Before the state machine of inflater starts, we need to check the type of inflation done (Raw, Gzip or Zlib)
         // To know if besides the first bits is the raw deflate block, any additional header processing is needed
         // or if at the end, we are doing additional error checkings.
-        int bytesRead = 0;
 
         //Inflate state machine
-        _finished = Decode();
+        _couldDecode = Decode();
 
         //Final copying of the uncompressed data
         // Keeps looping until the decom
-        bytesRead = _output.CopyTo(outputBytes); //This has error checkers
-
-        return bytesRead;
-    }
-
-    /// <summary>
-    /// If this stream has some input leftover that hasn't been processed then we should
-    /// check if it is another GZip file concatenated with this one.
-    ///
-    /// Returns false if the leftover input is another GZip data stream.
-    /// </summary>
-    private bool ResetStreamForLeftoverInput() // Esto con InputBuffer instead of next AvailIn**** --------------------OJO
-    {
-        Debug.Assert(!_input.NeedsInput());
-        Debug.Assert(IsGzipStream());
-
-        lock (SyncLock)
-        {
-            byte[] nextIn = _zlibStream.NextIn;
-            uint nextAvailIn = _zlibStream.AvailIn;
-            //Vivi's notes> Here there's needed a Copyto a method in OutputBuffer.
-            // We have reached the end of the block so with want to flush what we had from the last one.
-            //Vivi's notes (ES)> Aqui se aplica un CopyTo -- metodo de la clase OutputBuffer
-
-            // This is for checking is a new block is being read - FushCode.Block=5
-            // Check the leftover bytes to see if they start with he gzip header ID bytes
-            if (nextIn[0] != GZip_Header_ID1 || (nextAvailIn > 1 && nextIn[1] != GZip_Header_ID2))
-            {
-                return true;
-            }
-
-            // Trash our existing zstream.
-            //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet implemented
-
-            // Create a new zstream
-            InflateInit(_windowBits); //Vivi's notes: method TBD - I imagine here is where the ZStream gets modified  
-                                      // So bellow, the zLibStream vars are expected to be updated in terms of that
-
-            // SetInput on the new stream to the bits remaining from the last stream
-            _zlibStream.NextIn = nextIn;
-            _zlibStream.AvailIn = nextAvailIn;
-            //_finished = false;
-        }
-
-        return false;
+        
+        //bytesRead
+        return _output.CopyTo(outputBytes);
     }
 
     internal bool IsGzipStream() => _windowBits >= 24 && _windowBits <= 31;
@@ -363,11 +320,9 @@ internal sealed class Inflater
             Process trailer:
                 CHECK -> LENGTH -> DONE
         */
-        if (Finished()) // ------------AQUI SE CHECA LO DEL HEADER DEL SIGUIENTE BLOQUE PARA VER SI ES UN GZIP MEMBER
-                        //  *Maybe not just there but in every part where EnfOfBlock is checked
+        if (Finished())
         {
-            //Check if it is completely necessary to do this check here
-            return (!_input.NeedsInput() && IsGzipStream()) ? ResetStreamForLeftoverInput() : true;
+            return true;
         }
         
         //Read header of deflate blocks (HEAD)
