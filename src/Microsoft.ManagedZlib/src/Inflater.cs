@@ -20,13 +20,11 @@ using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Microsoft.ManagedZLib;
 
-
 /// <summary>
 /// Provides a wrapper around the ZLib decompression API.
 /// </summary>
-internal sealed class Inflater
+internal class Inflater
 {
-    // ------- Buffers
     private readonly OutputWindow _output;
     private readonly InputBuffer _input;
 
@@ -71,24 +69,17 @@ internal sealed class Inflater
     internal const int MaxWindowBits = 47;               // zlib headers, 24..31 for GZip headers, or 40..47 for either Zlib or GZip
 
     private bool _nonEmptyInput;                        // Whether there is any non empty input
-    //private bool _isDisposed;                           // Prevents multiple disposals
+    //private bool _isDisposed;                         // Prevents multiple disposals
     private readonly int _windowBits;                   // The WindowBits parameter passed to Inflater construction
-    private ZLibStreamHandle _zlibStream = new ZLibStreamHandle();    // The handle to the primary underlying zlib stream -- Vivi's note: TBD if necessary
 
-    //Vivi's note> This structure, if necessary, will be re-design because before it was implemented
-    // for pointer handling. - On the meantime there's a rough struct replacing the old one in ManagedZLib- 
-    // I suspect is not necessary at all and was just for aligning c#'s behavior to the c library
-    // [Commented old code] private ManagedZLib.BufferHandle _inputBufferHandle = default;            // The handle to the buffer that provides input to _zlibStream
-    //private readonly long _uncompressedSize;
-    //private long _currentInflatedCount;
     private bool _couldDecode;
     private object SyncLock => this;                    // Used to make writing to unmanaged structures atomic
-    public bool NeedsInput() => _input.NeedsInput();
+    public bool NeedsInput() => _input.NeedsInput(); //For filling up the reference in InputBuffer class to DeflateStream's underlying stream
     public int AvailableOutput => _output.AvailableBytes;//This could be:  if we decide to make a struct instead of classes
                                                          //public int AvailableOutput => (int)_zlibStream.AvailOut;
 
     //-------------------- Bellow const tables used in decoding:
-    // The base length for length code 257 - 285.
+    // The base length for length-code 257 - 285.
     // The formula to get the real length for a length code is lengthBase[code - 257] + (value stored in extraBits)
     private static ReadOnlySpan<byte> LengthBase => new byte[]
     {
@@ -125,7 +116,7 @@ internal sealed class Inflater
             0x03, 0x13, 0x0b, 0x1b, 0x07, 0x17, 0x0f, 0x1f
     };
     //Setting the windows bits
-    private static int InflateInit(int windowBits) //Does not perfom decompression - for sanity checks vefore actually calling Inflate()
+    private static int InflateInit(int windowBits)
     {
         Debug.Assert(windowBits >= MinWindowBits && windowBits <= MaxWindowBits);
         //-15 to -1 or 0 to 47
@@ -149,12 +140,11 @@ internal sealed class Inflater
         // Initializing window size according the type of deflate (window limits - 32k or 64k)
         // This has mainly: Output Window, Index last position (Where in window bytes array) and BytesUsed (As the quantity)
         _output = _deflate64? new OutputWindow() : new OutputWindow(windowBits);
-        //Vivi's notes> Review if it's really necessary to reserve this much like an array of bytes
         _codeList = new byte[IHuffmanTree.MaxLiteralTreeElements + IHuffmanTree.MaxDistTreeElements];
         _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];
         _nonEmptyInput = false;
         _couldDecode = false; //After finishing decoding
-        //Initial state of the state machine
+        //Initial state of the state machine - Checking BFinal bit
         _state = InflaterState.ReadingBFinal; // BFINAL - First bit of the block
         _uncompressedSize = uncompressedSize;
     }

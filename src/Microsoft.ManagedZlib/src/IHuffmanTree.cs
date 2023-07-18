@@ -21,18 +21,13 @@ namespace Microsoft.ManagedZLib;
 // Following paper explains decoding in details:
 //   Hirschberg and Lelewer, "Efficient decoding of prefix codes,"
 //   Comm. ACM, 33,4, April 1990, pp. 449-459.
-//
 
-//Vivi's notes: Added the managed Inflator huffman tree that was used in the managed DeflateStream 
-//because for Inflate is okay to use this lookup table-static huffman tree version
-//For deflate though, It will be necessary to implement the dynamic version of it since it creates a bunch
-// of dynamic trees depending on the data and the compression type.
 
-internal sealed class IHuffmanTree //Vivi's notes> I m
+internal sealed class IHuffmanTree
 {
     internal const int MaxLiteralTreeElements = 288;
     internal const int MaxDistTreeElements = 32;
-    internal const int EndOfBlockCode = 256; //Vivi's notes> This is reserved for E-o-B always (RFC1951)
+    internal const int EndOfBlockCode = 256; //Reserved for EndOfByte (RFC1951)
     internal const int NumberOfCodeLengthTreeElements = 19;
 
     private readonly int _tableBits;

@@ -19,40 +19,6 @@ namespace Microsoft.ManagedZLib;
 /// </summary>
 public static class ManagedZLib
 {
-    //Vivi's notes(ES):Es justo y necesario (tener una estructura para ZStream)
-    //aunque si requiere un formato mas complejo que ints, tal vez sea necesario
-    //usar la clase ManagedZLib.ZStream -- else, hay que borrarla (ta vacia so far)
-    internal struct ZStream  //Aunque, checar ZLibStream para ver si los metodos de al final - luego de la clase- se pueden unificar
-    {
-        internal byte[] nextIn;  //Bytef    *next_in;  /* next input byte */
-        internal byte[] nextOut; //Bytef    *next_out; /* next output byte should be put there */
-
-        //Vivi's notes: This is for error messages but saw in the managed part of native implementation
-        //that it's never being assign to anything
-        //(To be checked later - Maybe the info is assign directly in the native part through the pointer)
-        internal String msg;     //char     *msg;      /* last error message, NULL if no error */
-
-        internal uint availIn;   //uInt     avail_in;  /* number of bytes available at next_in */
-        internal uint availOut;  //uInt     avail_out; /* remaining free space at next_out */
-    }
-    //-------------Vivi's notes> Check, ZStream properties and definitions
-    public static bool ReturnTrue => true; //This is just for the unit test example
-
-    //public struct BufferHandle
-    //{
-    //    // Vivi's note> If we decide we're creating a struct
-    //    // then this, instad of being public, would be like ZStream
-    //    // internal and later their properties implemented in a secure class
-    //    int Handle;
-    //    //Vivi's notes> I think this is repetitive (We should use either Memory or byte[])
-    //    //public Memory<byte> tempHandle;
-    //    public byte[] Buffer;
-
-    //    //Se ocupara struct de input
-    //    //Struct de output
-    //    //Estructura que representa el reemplazo de MemoryHandle que solo maneja pointers
-    //    //public void Dispose();
-    //}
 
     public enum FlushCode : int //Vivi's notes: For knowing how much and when to produce output
     {
@@ -103,7 +69,7 @@ public static class ManagedZLib
     /// </summary>
     public enum CompressionMethod : int
     {
-        Deflated = 8 //Vivi's notes: Default compression method - deflate
+        Deflated = 8 //Default compression method - deflate
     }
     // Raw deflate is actually the more basic format for defalte and inflate. The other ones like GZip and ZLib have a wrapper around
     // the data/deflate block.
@@ -185,60 +151,10 @@ public static class ManagedZLib
     /// </summary>
     public sealed class ZLibStreamHandle //Vivi's notes: Took off the inheritance part, I elaborate bellow on why
     {
-        /// <summary>
-        ///  ----------------------Vivi's notes>
-        /// The pointers(zalloc,zfree,opaque - for using malloc and stuff in c++ algorithm) usually need to be initialized
-        /// before being called for deflate, inflate or so.
-        /// This states might not be necessary anymore (nor to inherit from SafeHandle).
-        /// </summary>
-        public enum State { NotInitialized, InitializedForDeflate, InitializedForInflate, Disposed } //Vivi's notes> Maybe se use para diagnostics luego
-
-        // Vivi's notes>
-        //Took of all the overrides related to pointers behavior and the state init methods.
-        // Discovered all the implementations/methods were related to ZLibStreamHandle: SafeHandle
-        //which is related to pointers handling.
-        //In this new managed implementation PTRs are no longer be used - instead we'll use managed versions
-        //This whole inheritance (class inherits from SafeHandle) might be unnecessary
-        //Maybe we just need to use regular class/methods.
-        //
-        //I'm still considering if returning errors is the best way. Kept it for following the logic behind the original algorithm.
-        // -wanted to point out my skepticism tho- (I'll erase these type of comments later on for sure)
-
-        private ZStream _zStream;
-
-        // ZStream properties so far
-        public byte[] NextIn
-        {
-            get { return _zStream.nextIn; }
-            set { _zStream.nextIn = value; }
-        }
-
-        public uint AvailIn
-        {
-            get { return _zStream.availIn; }
-            set { _zStream.availIn = value; }
-        }
-
-        public byte[] NextOut
-        {
-            get { return _zStream.nextOut; }
-            set { _zStream.nextOut = value; }
-        }
-
-        public uint AvailOut
-        {
-            get { return _zStream.availOut; }
-            set { _zStream.availOut = value; }
-        }
-
-
         //Vivi's notes: If we decide to do everything (compress and uncompress) in a class called Deflate/Inflate then this class might be
         // just for error checking or like a initial setup on the buffers.
         public ErrorCode DeflateInit2_(CompressionLevel level, int windowBits, int memLevel, CompressionStrategy strategy)
         {
-            //Vivi's notes: For the compiler not to cry in the meantime
-            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
-
             //This would have gone to a PInvoke
             //Vivi's notes: Kept notation for clarity
             return ErrorCode.Ok; //errorCode is an enum - this (int = 0) means Ok
@@ -247,9 +163,6 @@ public static class ManagedZLib
 
         public ErrorCode Deflate(FlushCode flush)
         {
-            //Vivi's notes: For the compiler not to cry in the meantime
-            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
-
             //This would have gone to a PInvoke
             return ErrorCode.Ok;
         }
@@ -257,9 +170,6 @@ public static class ManagedZLib
 
         public ErrorCode DeflateEnd()
         {
-            //Vivi's notes: For the compiler not to cry in the meantime
-            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
-
             //Vivi's notes: This would have gone to a PInvoke
             return ErrorCode.Ok;
         }
@@ -267,11 +177,7 @@ public static class ManagedZLib
         public ErrorCode InflateInit2_(int windowBits)
         {
 
-               //ErrorCode errC = Interop.ZLib.InflateInit2_(stream, windowBits);
-
-               //Vivi's notes: For the compiler not to cry in the meantime
-               _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
-
+            //ErrorCode errC = Interop.ZLib.InflateInit2_(stream, windowBits);
             //Vivi's notes: This would have gone to a PInvoke
             return ErrorCode.Ok;
         }
@@ -279,9 +185,6 @@ public static class ManagedZLib
 
         public ErrorCode Inflate(FlushCode flush)
         {
-            //Vivi's notes: For the compiler not to cry in the meantime
-            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
-
             //Vivi's notes: This would have gone to a PInvoke for the native version of ZLib inflate
             return ErrorCode.Ok;
         }
@@ -289,32 +192,11 @@ public static class ManagedZLib
 
         public ErrorCode InflateEnd()
         {
-            //Vivi's notes: For the compiler not to cry in the meantime
-            _zStream.msg = "In the meantime - Suspect this is implemented in the native side of things";
             return ErrorCode.Ok;
         }
-
-        // This can work even after XxflateEnd().
-        // Vivi's notes: No need for using Marshal methods (last version) but I'll keep the check for now
-        public string GetErrorMessage() => _zStream.msg != null ? _zStream.msg! : string.Empty; //-- basic invalid str check
         
     }
 
-    // -------------------------------Vivi's note> I'll keep the wrapper for later returning a ZStream (but "To be revaluated")
-    // (ES) Posibilidad de unificacion con ZLibStream
-    public static ErrorCode CreateZLibStreamForDeflate(out ZLibStreamHandle zLibStreamHandle, CompressionLevel level,
-    int windowBits, int memLevel, CompressionStrategy strategy)
-    {
-        zLibStreamHandle = new ZLibStreamHandle(); //Vivi's note (ES)> Mega extra, aqui como que le pasa un stream con las struct que antes manejaban todos los ptrs
-        //Aparte usa *out en los parametros, todo indica que era como una interfaz o wrapper para manejar el apuntador
-        // No need of this I think
-        return zLibStreamHandle.DeflateInit2_(level, windowBits, memLevel, strategy);
-    }
-
-
-    public static ErrorCode CreateZLibStreamForInflate(out ZLibStreamHandle zLibStreamHandle, int windowBits)
-    {
-        zLibStreamHandle = new ZLibStreamHandle();
-        return zLibStreamHandle.InflateInit2_(windowBits);
-    }
+    // Vivi's note> CreateZLibStreamForDeflate and CreateZLibStreamForInflate are for setting the underlying stream.
+    // I think DeflateStream handles it now.
 }

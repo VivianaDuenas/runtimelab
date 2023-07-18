@@ -11,6 +11,7 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using static Microsoft.ManagedZLib.ManagedZLib;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Microsoft.ManagedZLib;
@@ -22,7 +23,7 @@ public partial class DeflateStream : Stream
     private Inflater? _inflater;
     private Deflater? _deflater;
     private byte[]? _buffer;
-    private int _activeAsyncOperation; // 1 == true, 0 == false
+    private bool _activeAsyncOperation;
     private CompressionMode _mode;
     private bool _leaveOpen;
     private bool _wroteBytes;
@@ -157,16 +158,9 @@ public partial class DeflateStream : Stream
 
     public override bool CanSeek => false;
 
-    public override long Length
-    {
-        get { throw new NotSupportedException("NotSupported - This operation is not supported."); }
-    }
+    public override long Length { get => throw new NotSupportedException(); }
 
-    public override long Position
-    {
-        get { throw new NotSupportedException("NotSupported - This operation is not supported."); }
-        set { throw new NotSupportedException("NotSupported - This operation is not supported."); }
-    }
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
     public override void Flush()
     {
@@ -201,8 +195,8 @@ public partial class DeflateStream : Stream
                 bool flushSuccessful;
                 do
                 {
-                    int compressedBytes;
-                    flushSuccessful = _deflater.Flush(_buffer, out compressedBytes);
+                    int compressedBytes = _deflater.Finish(_buffer);
+                    flushSuccessful = _deflater.Flush(_buffer);
                     if (flushSuccessful)
                     {
                         await _stream.WriteAsync(new ReadOnlyMemory<byte>(_buffer, 0, compressedBytes), cancellationToken).ConfigureAwait(false);
@@ -220,15 +214,9 @@ public partial class DeflateStream : Stream
         }
     }
 
-    public override long Seek(long offset, SeekOrigin origin)
-    {
-        throw new NotSupportedException("NotSupported - This operation is not supported.");
-    }
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
-    public override void SetLength(long value)
-    {
-        throw new NotSupportedException("NotSupported - This operation is not supported.");
-    }
+    public override void SetLength(long value) => throw new NotSupportedException();
 
     public override int ReadByte()
     {
@@ -279,7 +267,7 @@ public partial class DeflateStream : Stream
                                                   // If BytesRead (input available) < buffer.Length, then the slice will be smaller thant the original
                                                   // else, it would be same size - being the input either all decompressed or just a buffer.Length part
 
-                if (bytesRead != 0 || InflatorIsFinished)
+                if (bytesRead != 0 && InflatorIsFinished)
                 {
                     // if we finished decompressing, we can't have anything left in the outputwindow.
                     Debug.Assert(_inflater.AvailableOutput == 0, "We should have copied all stuff out!");
@@ -578,8 +566,8 @@ public partial class DeflateStream : Stream
             bool flushSuccessful;
             do
             {
-                int compressedBytes;
-                flushSuccessful = _deflater.Flush(_buffer, out compressedBytes);
+                int compressedBytes = _deflater.ReadDeflateOutput(_buffer, ManagedZLib.FlushCode.SyncFlush);
+                flushSuccessful = _deflater.Flush(_buffer);
                 if (flushSuccessful)
                 {
                     _stream.Write(_buffer, 0, compressedBytes);
@@ -619,8 +607,8 @@ public partial class DeflateStream : Stream
             bool finished;
             do
             {
-                int compressedBytes;
-                finished = _deflater.Finish(_buffer, out compressedBytes);
+                int compressedBytes = _deflater.Finish(_buffer);
+                finished = compressedBytes != 0;
 
                 if (compressedBytes > 0)
                     _stream.Write(_buffer, 0, compressedBytes);
@@ -636,7 +624,7 @@ public partial class DeflateStream : Stream
             bool finished;
             do
             {
-                finished = _deflater.Finish(_buffer, out _);
+                finished = _deflater.Finish(_buffer) !=0;
             } while (!finished);
         }
     }
@@ -666,8 +654,8 @@ public partial class DeflateStream : Stream
             bool finished;
             do
             {
-                int compressedBytes;
-                finished = _deflater.Finish(_buffer, out compressedBytes);
+                int compressedBytes =  _deflater.Finish(_buffer);
+                finished = compressedBytes != 0;
 
                 if (compressedBytes > 0)
                     await _stream.WriteAsync(new ReadOnlyMemory<byte>(_buffer, 0, compressedBytes)).ConfigureAwait(false);
@@ -683,7 +671,7 @@ public partial class DeflateStream : Stream
             bool finished;
             do
             {
-                finished = _deflater.Finish(_buffer, out _); //To check - Hay unos out left que hay que quitar
+                finished = _deflater.Finish(_buffer)!=0;
             } while (!finished);
         }
     }
@@ -1084,7 +1072,7 @@ public partial class DeflateStream : Stream
         public override void SetLength(long value) { throw new NotSupportedException(); }
     }
 
-    private bool AsyncOperationIsActive => _activeAsyncOperation != 0;
+    private bool AsyncOperationIsActive => _activeAsyncOperation != false;
 
     private void EnsureNoActiveAsyncOperation()
     {
@@ -1094,14 +1082,13 @@ public partial class DeflateStream : Stream
 
     private void AsyncOperationStarting()
     {
-        if (Interlocked.Exchange(ref _activeAsyncOperation, 1) != 0)
+        if (_activeAsyncOperation != false)
         {
             ThrowInvalidBeginCall();
         }
     }
 
-    private void AsyncOperationCompleting() =>
-        Volatile.Write(ref _activeAsyncOperation, 0);
+    private void AsyncOperationCompleting() =>_activeAsyncOperation = false;
 
     private static void ThrowInvalidBeginCall() =>
         throw new InvalidOperationException("InvalidBeginCall - Only one asynchronous reader or writer is allowed time at one time.");

@@ -15,12 +15,11 @@ namespace Microsoft.ManagedZLib;
 // The byte array is not reused. We will go from 'start' to 'end'.
 // When we reach the end, most read operations will return -1,
 // which means we are running out of input.
-
 internal sealed class InputBuffer
 {
-    private Memory<byte> _buffer;     // memory to store input
-    private uint _bitBuffer;      // store the bits here, we can quickly shift in this buffer
-    private int _bitsInBuffer;    // number of bits available in bitBuffer
+    private Memory<byte> _buffer; // Input stream buffer
+    private uint _bitBuffer;      // To quickly shift in this buffer
+    private int _bitsInBuffer;    // #bits available in bitBuffer
 
     /// <summary>Total bits available in the input buffer.</summary>
     public int AvailableBits => _bitsInBuffer;
@@ -121,8 +120,7 @@ internal sealed class InputBuffer
         return result;
     }
 
-    // ---------  Data
-    /// <summary>
+    /// <summary> For copying data in Deflate blocks:
     /// Copies bytes from input buffer to output buffer.
     /// You have to make sure, that the buffer is byte aligned. If not enough bytes are
     /// available, copies fewer bytes.
@@ -154,7 +152,6 @@ internal sealed class InputBuffer
         return bytesFromBitBuffer + length;
     }
 
-    // --- Length
     /// <summary>
     /// Copies length bytes from input buffer to output buffer starting at output[offset].
     /// You have to make sure, that the buffer is byte aligned. If not enough bytes are
@@ -218,7 +215,7 @@ internal sealed class InputBuffer
         _bitsInBuffer -= n;
     }
 
-    /// <summary>Skips to the next byte boundary.</summary>
+    /// <summary>Skips to the next byte boundary for byte alignment.</summary>
     public void SkipToByteBoundary()
     {
         _bitBuffer >>= (_bitsInBuffer % 8);

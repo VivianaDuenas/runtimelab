@@ -4,6 +4,8 @@
 using System;
 using System.Buffers;
 using System.Diagnostics;
+using System.IO;
+using System.Reflection.Emit;
 using System.Security;
 
 using ZErrorCode = Microsoft.ManagedZLib.ManagedZLib.ErrorCode;
@@ -14,13 +16,16 @@ namespace Microsoft.ManagedZLib
     /// <summary>
     /// Provides a wrapper around the ZLib compression API.
     /// </summary>
-    internal sealed class Deflater : IDisposable
+    internal sealed class Deflater
     {
-        private readonly ManagedZLib.ZLibStreamHandle _zlibStream;
         //Vivi's note> MemoryHandle was for managing the pointers. Gone now
         private bool _isDisposed;
         private const int minWindowBits = -15;  // WindowBits must be between -8..-15 to write no header, 8..15 for a
         private const int maxWindowBits = 31;   // zlib header, or 24..31 for a GZip header
+        private int _windowBits;
+        private readonly OutputWindow _output;
+        private readonly InputBuffer _input;
+        public bool NeedsInput() => _input.NeedsInput();
 
         // Note, DeflateStream or the deflater do not try to be thread safe.
         // The lock is just used to make writing to unmanaged structures atomic to make sure
@@ -31,14 +36,15 @@ namespace Microsoft.ManagedZLib
 
         internal Deflater(CompressionLevel compressionLevel, int windowBits)
         {
-            Debug.Assert(windowBits >= minWindowBits && windowBits <= maxWindowBits);
             ManagedZLib.CompressionLevel zlibCompressionLevel;
             int memLevel;
+            _windowBits = DeflateInit(windowBits); //Checking format of compression> Raw, Gzip or ZLib
+            _output = new OutputWindow(_windowBits);
+            _input = new InputBuffer();
 
             switch (compressionLevel)
             {
                 // See the note in ManagedZLib.CompressionLevel for the recommended combinations.
-
                 case CompressionLevel.Optimal:
                     zlibCompressionLevel = ManagedZLib.CompressionLevel.DefaultCompression;
                     memLevel = ManagedZLib.Deflate_DefaultMemLevel;
@@ -65,40 +71,25 @@ namespace Microsoft.ManagedZLib
 
             ManagedZLib.CompressionStrategy strategy = ManagedZLib.CompressionStrategy.DefaultStrategy;
 
-            ZErrorCode errC;
-            try
-            {
-                errC = ManagedZLib.CreateZLibStreamForDeflate(out _zlibStream, zlibCompressionLevel,
-                                                             windowBits, memLevel, strategy);
-            }
-            catch (Exception cause)
-            {
-                throw new ZLibException("ZLibErrorDLLLoadError - The underlying compression routine could not be loaded correctly.", cause);
-            }
+            DeflateInit2(zlibCompressionLevel, ManagedZLib.CompressionMethod.Deflated, windowBits, memLevel, strategy);
 
-            switch (errC)
-            {
-                case ZErrorCode.Ok:
-                    return;
 
-                case ZErrorCode.MemError:
-                    throw new ZLibException("ZLibErrorNotEnoughMemory - The underlying compression routine could not reserve sufficient memory.",
-                        "deflateInit2_", (int)errC, _zlibStream.GetErrorMessage());
-
-                case ZErrorCode.VersionError:
-                    throw new ZLibException("ZLibErrorVersionMismatch - The version of the underlying compression routine does not match expected version.",
-                        "deflateInit2_", (int)errC, _zlibStream.GetErrorMessage());
-
-                case ZErrorCode.StreamError:
-                    throw new ZLibException("ZLibErrorIncorrectInitParameters - The underlying compression routine received incorrect initialization parameters.",
-                        "deflateInit2_", (int)errC, _zlibStream.GetErrorMessage());
-
-                default:
-                    throw new ZLibException("ZLibErrorUnexpected - The underlying compression routine returned an unexpected error code.", "deflateInit2_",
-                        (int)errC, _zlibStream.GetErrorMessage());
-            }
         }
+        private int DeflateInit( int windowBits)
+        {
+            Debug.Assert(windowBits >= minWindowBits && windowBits <= maxWindowBits);
+            //-15 to -1 or 0 to 47
+            return (windowBits < 0) ? -windowBits : windowBits &= 15;
+        }
+        //This will use asserts instead of the ZLibNative error checking
+        private void DeflateInit2(ManagedZLib.CompressionLevel level,
+            ManagedZLib.CompressionMethod method,
+            int windowBits,
+            int memLevel,
+            ManagedZLib.CompressionStrategy strategy) { 
 
+            //Set everything up + error checking if needed - Might merge with DeflateInit later.
+    }
         ~Deflater()
         {
             Dispose(false);
@@ -115,17 +106,12 @@ namespace Microsoft.ManagedZLib
             if (!_isDisposed)
             {
                 if (disposing) {
-                    //_zlibStream.Dispose(); //Vivi's note: DISPOSE  OF ZSTREAM *dispose method not yet imlemented
+                   // Dispose(); //TBD
+                   // Just in case ArrayPool is used (not likely so far).
                 }
-
-                DeallocateInputBufferHandle();
                 _isDisposed = true;
             }
         }
-
-        //Vivi's note> Esto maybe lo saque ahora de inputBuffer.NeedsInput() en lugar del struct de ManagedZLib
-        //En ambos casos checa si el inputBuffer esta vacio
-        public bool NeedsInput() => 0 == _zlibStream.AvailIn;
 
         internal void SetInput(ReadOnlySpan<byte> inputBuffer)
         {
@@ -133,16 +119,6 @@ namespace Microsoft.ManagedZLib
             if (0 == inputBuffer.Length)
             {
                 return;
-            }
-
-            lock (SyncLock)
-            {
-                //Vivi's note(ES) > Aun hay que ver cómo será la estructura para el Handle
-                //Aqui como que pide la referencia al arreglo para que lo tenga el handle (de manera segura con Memory) y el ZStream (NextIn)
-                // _inputBufferHandle.tempHandle = inputBuffer.Pin();    //Maybe haya que eliminar la struct de Handle                                         
-
-                _zlibStream.NextIn = inputBuffer.ToArray(); 
-                _zlibStream.AvailIn = (uint)inputBuffer.Length;
             }
         }
         //Vivi's notes> This overloading might be repetitive
@@ -156,11 +132,6 @@ namespace Microsoft.ManagedZLib
                 return;
             }
 
-            lock (SyncLock)
-            {
-                _zlibStream.NextIn = inputBuffer.ToArray(); //Vivi's notes> We're picking 
-                _zlibStream.AvailIn = (uint)count;
-            }
         }
 
         internal int GetDeflateOutput(byte[] outputBuffer)
@@ -168,51 +139,40 @@ namespace Microsoft.ManagedZLib
             Debug.Assert(null != outputBuffer, "Can't pass in a null output buffer!");
             Debug.Assert(!NeedsInput(), "GetDeflateOutput should only be called after providing input");
 
-            try
-            {
-                int bytesRead;
-                ReadDeflateOutput(outputBuffer, ZFlushCode.NoFlush, out bytesRead);
-                return bytesRead;
-            }
-            finally
-            {
-                // Before returning, make sure to release input buffer if necessary:
-                if (0 == _zlibStream.AvailIn)
-                {
-                    DeallocateInputBufferHandle();
-                }
-            }
+            int bytesRead = ReadDeflateOutput(outputBuffer, ZFlushCode.NoFlush);
+            return bytesRead;
+
         }
 
-        private ZErrorCode ReadDeflateOutput(byte[] outputBuffer, ZFlushCode flushCode, out int bytesRead)
+        public int ReadDeflateOutput(Span<byte> outputBuffer, ZFlushCode flushCode)
         {
-            Debug.Assert(outputBuffer?.Length > 0);
-
+            Debug.Assert(outputBuffer.Length > 0); // This used to be nullable - Check behavior later
+            int count = 0;
             lock (SyncLock)
             {
-                _zlibStream.NextOut = outputBuffer;
-                _zlibStream.AvailOut = (uint)outputBuffer.Length;
+                //Here will copy from the output buffer to the stream
+                // and deflate
 
-                ZErrorCode errC = Deflate(flushCode);
-                bytesRead = outputBuffer.Length - (int)_zlibStream.AvailOut;
+                count = Deflate(flushCode);
+                int bytesRead = outputBuffer.Length - _output.AvailableBytes;
 
-                return errC;
+                return bytesRead;
             }
         }
 
-        internal bool Finish(byte[] outputBuffer, out int bytesRead)
+        internal int Finish(byte[] outputBuffer)
         {
             Debug.Assert(null != outputBuffer, "Can't pass in a null output buffer!");
             Debug.Assert(outputBuffer.Length > 0, "Can't pass in an empty output buffer!");
 
-            ZErrorCode errC = ReadDeflateOutput(outputBuffer, ZFlushCode.Finish, out bytesRead);
-            return errC == ZErrorCode.StreamEnd;
+            int bytesRead = ReadDeflateOutput(outputBuffer, ZFlushCode.Finish); //We may to do byte
+            return bytesRead; //return _state == DeflateState.StreamEnd; or DeflateState.Done;
         }
 
         /// <summary>
         /// Returns true if there was something to flush. Otherwise False.
         /// </summary>
-        internal bool Flush(byte[] outputBuffer, out int bytesRead)
+        internal bool Flush(byte[] outputBuffer)
         {
             Debug.Assert(null != outputBuffer, "Can't pass in a null output buffer!");
             Debug.Assert(outputBuffer.Length > 0, "Can't pass in an empty output buffer!");
@@ -223,51 +183,16 @@ namespace Microsoft.ManagedZLib
             // If there is still input left we should never be getting here; instead we
             // should be calling GetDeflateOutput.
 
-            return ReadDeflateOutput(outputBuffer, ZFlushCode.SyncFlush, out bytesRead) == ZErrorCode.Ok;
+            return ReadDeflateOutput(outputBuffer, ZFlushCode.SyncFlush) != 0;
         }
 
-        private void DeallocateInputBufferHandle()
+
+
+        private int Deflate(ZFlushCode flushCode)
         {
-            lock (SyncLock)
-            {
-                _zlibStream.AvailIn = 0;
-                Array.Clear(_zlibStream.NextIn, 0, _zlibStream.NextIn.Length); // Vivi's notes(ES)> Aqui habia un _zlibStream = ZNullPtr.IntPtr.Zero
-                //_inputBufferHandle.Dispose(); Vivi's note> Because we haven't decided on a struct yet
-                // We aren't 100% if it's going to need a dispose()
-                // Since we're expecting for everything to be "managed" the possibility to not having it and reuse
-                //other managed structs is still open
-            }
-        }
 
-        private ZErrorCode Deflate(ZFlushCode flushCode)
-        {
-            ZErrorCode errC;
-            try
-            {
-                errC = _zlibStream.Deflate(flushCode);
-            }
-            catch (Exception cause)
-            {
-                throw new ZLibException("ZLibErrorDLLLoadError - The underlying compression routine could not be loaded correctly.", cause);
-            }
+            return Deflate(flushCode); ; //Deflate + error checking (in progress)
 
-            switch (errC)
-            {
-                case ZErrorCode.Ok:
-                case ZErrorCode.StreamEnd:
-                    return errC;
-
-                case ZErrorCode.BufError:
-                    return errC;  // This is a recoverable error
-
-                case ZErrorCode.StreamError:
-                    throw new ZLibException("ZLibErrorInconsistentStream - The stream state of the underlying compression routine is inconsistent.",
-                        "deflate", (int)errC, _zlibStream.GetErrorMessage());
-
-                default:
-                    throw new ZLibException("ZLibErrorUnexpected - The underlying compression routine returned an unexpected error code.", "deflate",
-                        (int)errC, _zlibStream.GetErrorMessage());
-            }
         }
     }
 }
