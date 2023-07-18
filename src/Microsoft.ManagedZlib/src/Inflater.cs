@@ -69,7 +69,6 @@ internal class Inflater
     internal const int MaxWindowBits = 47;               // zlib headers, 24..31 for GZip headers, or 40..47 for either Zlib or GZip
 
     private bool _nonEmptyInput;                        // Whether there is any non empty input
-    //private bool _isDisposed;                         // Prevents multiple disposals
     private readonly int _windowBits;                   // The WindowBits parameter passed to Inflater construction
 
     private bool _couldDecode;
