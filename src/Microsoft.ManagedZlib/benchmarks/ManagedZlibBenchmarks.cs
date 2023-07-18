@@ -13,8 +13,6 @@ namespace Microsoft.ManagedZLib.Benchmarks;
 // and it has to BE PUBLIC. It also has to be a class (no structs support).
 public class ManagedZLibBenchmark
 {
-
-    private static readonly CompressFiles compressObj = new ();
     public static string GetTestFilePath() 
         => Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
     private static readonly string _rootDirPath = GetTestFilePath();
@@ -37,7 +35,7 @@ public class ManagedZLibBenchmark
     public void zipProccess()
     {
         //Check why it's still complaining of zip existing if we deleted it in the setUp function
-        compressObj.ZipIt(_testDirPath);
+        ZipIt(_testDirPath);
         File.Delete(_testDirPath);
     }
 
