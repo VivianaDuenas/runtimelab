@@ -28,13 +28,13 @@ internal class Inflater
     private readonly OutputWindow _output;
     private readonly InputBuffer _input;
 
-    private IHuffmanTree? _literalLengthTree;// Literals
-    private IHuffmanTree? _distanceTree;     // Distance
-    private IHuffmanTree? _codeLengthTree;   // Length
+    private IHuffmanTree? _literalLengthTree;
+    private IHuffmanTree? _distanceTree; 
+    private IHuffmanTree? _codeLengthTree;
 
-    private int _literalLengthCodeCount; // Literals
-    private int _distanceCodeCount;      // Distance
-    private int _codeLengthCodeCount;    // Length
+    private int _literalLengthCodeCount;
+    private int _distanceCodeCount;
+    private int _codeLengthCodeCount;
 
     private InflaterState _state;
     private BlockType _blockType;
@@ -163,9 +163,6 @@ internal class Inflater
     /// </summary>
     public bool Finished() =>  _state == InflaterState.Done || _state == InflaterState.VerifyingFooter;
 
-    // Vivi's notes> If there's s need of a subset of the buffer,
-    // instead of passing a length and offset along with the buffer (like before)
-    // You would just slice it from he caller like this: spanUsed.Slice(offset, length)
     public int Inflate(Span<byte> buffer) 
     {
         // If Inflate is called on an invalid or unready inflater, return 0 to indicate no bytes have been read.
@@ -174,11 +171,9 @@ internal class Inflater
 
         int bytesRead = InflateVerified(buffer);
 
-        //Vivi's notes> Sanity checks
         Debug.Assert(buffer != null, "Can't pass in a null output buffer!");
-        //Debug.Assert(bytesRead == 0 || bytesRead == 1);
 
-        return bytesRead;//bytesRead != 0 in the caller that expects a bool
+        return bytesRead;
     }
 
     public int InflateVerified(Span<byte> bufferBytes)
