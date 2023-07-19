@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Running;
 using System.IO.Compression;
 using System.Text;
 
@@ -61,6 +62,14 @@ public class ManagedZLibBenchmark
     {
 
         ZipFile.CreateFromDirectory(ZipFilePath, ExtractDestination);
+    }
+    public class programRun
+    {
+        static void Main()
+        {
+            //The benchmark I want to test
+            BenchmarkRunner.Run<ManagedZLibBenchmark>();
+        }
     }
 
 }

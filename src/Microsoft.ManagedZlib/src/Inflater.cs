@@ -138,7 +138,7 @@ internal class Inflater
         _windowBits = InflateInit(windowBits);
         // Initializing window size according the type of deflate (window limits - 32k or 64k)
         // This has mainly: Output Window, Index last position (Where in window bytes array) and BytesUsed (As the quantity)
-        _output = _deflate64? new OutputWindow() : new OutputWindow(windowBits);
+        _output = _deflate64? new OutputWindow() : new OutputWindow(_windowBits);
         _codeList = new byte[IHuffmanTree.MaxLiteralTreeElements + IHuffmanTree.MaxDistTreeElements];
         _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];
         _nonEmptyInput = false;
@@ -206,7 +206,7 @@ internal class Inflater
                 {
                     //Done reading input
                     _state = InflaterState.Done;
-                    _output.ClearBytesUsed();
+                    _output.ClearBytesUsed(); //The window end up being clean - _bytesUsed = 0
                 }  
             }
             // Before actually add the bytes read to the local variable, 
@@ -216,7 +216,6 @@ internal class Inflater
                 bufferBytes = bufferBytes.Slice(copied);
                 bytesRead += copied;
             }
-
             if (bufferBytes.IsEmpty)
             {
                 // filled in the bytes buffer - We reached the end
@@ -392,8 +391,7 @@ internal class Inflater
         end_of_block_code_seen = false;
 
         int freeBytes = _output.FreeBytes;   // it is a little bit faster than frequently accessing the property
-        while (freeBytes > 65536) //Vivi's notes(ES)> Mientras los bytes libres en el output buffer sea mayores a 65536
-                                  //Here the approach goes, instead of filling it, taking away what's available
+        while (freeBytes > 65536) //[bytesUsed] The approach goes, instead of filling it, taking away what's available
         {
             // With Deflate64 we can have up to a 64kb length, so we ensure at least that much space is available
             // in the OutputWindow to avoid overwriting previous unflushed output data.

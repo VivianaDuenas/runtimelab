@@ -328,6 +328,141 @@ public class MyClassTests
         }
     }
 
+    [Theory] //Try use localMemory stream instead of filestream
+    [InlineData("UncompressedTestFiles", "TestDocument.doc")]
+    public async void Test5(string folderName, string fileName)  // Test3 with a filestream
+    {
+        string testFile = Path.Combine(folderName, fileName);
+        LocalMemoryStream uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
+        LocalMemoryStream compressedStream = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(testFile)); //Compressed stream
+        // ---------------- Decompressed stream - Passing it the compressed stream
+        using Stream decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
+        var decompressorOutput = new MemoryStream();
+
+        using MemoryStream originalData = new MemoryStream(); //Original - non compressed
+        MemoryStream compressedDestination = new(); // Compressed with System.IO.Compresion - Stored here
+        //System.IO.Compression.DeflateStream compressor = new System.IO.Compression.DeflateStream(compressedDestination, System.IO.Compression.CompressionMode.Compress, leaveOpen: true);
+
+
+        using (System.IO.Compression.DeflateStream compressor = new System.IO.Compression.DeflateStream(compressedDestination, System.IO.Compression.CompressionMode.Compress, leaveOpen: true))
+        {
+            uncompressedStream.CopyTo(compressor);  //Compressor has the compressed data now.
+        }
+        compressedDestination.Position = 0;
+
+        // In case I want to print it out:
+        byte[] compressedBytes = new byte[50]; //For printing the compressed Bytes
+        compressedDestination.ReadAtLeast(compressedBytes, 49, throwOnEndOfStream: false); //Reading compressed bytes
+        compressedDestination.Position = 0;
+
+        // ---------------- Read --------------------- (Decompressing method)
+        int _bufferSize = 1024;
+        var finalBytes = new byte[_bufferSize]; //User's buffer
+        bool finished = false;
+        int retCount;
+        while (!finished)
+        { //retCount will be either the length given or the available input in the underlyign (compressed data) stream
+            retCount = decompressor.Read(finalBytes, 0, _bufferSize);
+
+            if (retCount != 0)
+                decompressorOutput.Write(finalBytes, 0, retCount); //Write from DeflateStream to MemoryStream
+            else
+                finished = true;
+        }
+        byte[] originalBytes = uncompressedStream.ToArray();
+        // Compressed Size
+        Console.WriteLine($"CompressedDestination size: {compressedDestination.Length}");
+        // Size after decompressing
+        Console.WriteLine($"UncompressedDestination size: {finalBytes.Length}");
+
+        Console.WriteLine($"Uncompressed: {Encoding.ASCII.GetString(originalBytes)}");
+        Console.WriteLine($"Compressed: ");
+        Print(compressedBytes);
+        Console.WriteLine($"Final: {Encoding.ASCII.GetString(finalBytes)}");
+
+        //From the Stream -Check results-
+        decompressorOutput.Position = 0;
+        originalData.Position = 0;
+        uncompressedStream.Position = 0;
+
+        //Tal vez deberia checar el archivo per se, pero se hace con Read. No tiene un ToArray() como MemoryStream
+        //byte[] uncompressedStreamBytes = originalBytes;
+        byte[] uncompressedStreamBytes = uncompressedStream.ToArray();
+        byte[] decompressorOutputBytes = decompressorOutput.ToArray(); //After read()
+
+        //Porque esta casteado a Stream aunque haya creado DeflateS
+
+        Assert.Equal(uncompressedStreamBytes.Length, decompressorOutputBytes.Length);
+        for (int i = 0; i < uncompressedStreamBytes.Length; i++)
+        {
+            Assert.Equal(uncompressedStreamBytes[i], decompressorOutputBytes[i]);
+        }
+    }
+
+    [Theory] // Test closest to what we have in the ZLibNative test suite - ToCopy
+    [InlineData("UncompressedTestFiles", "TestDocument.doc")]
+    public async void Test6(string folderName, string fileName)  // Test3 with a filestream
+    {
+        string testFile = Path.Combine(folderName, fileName);
+        LocalMemoryStream uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
+        LocalMemoryStream compressedStream = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(testFile)); //Compressed stream
+
+        using MemoryStream originalData = new MemoryStream(); //Original - non compressed
+        MemoryStream compressedDestination = new(); // Compressed with System.IO.Compresion - Stored here
+
+
+        using (System.IO.Compression.DeflateStream compressor = new System.IO.Compression.DeflateStream(compressedDestination, System.IO.Compression.CompressionMode.Compress, leaveOpen: true))
+        {
+            // Original stream (with the document info) to compressor stream (Compressed)
+            uncompressedStream.CopyTo(compressor);  //Compressor has the compressed data now.
+        }
+        compressedDestination.Position = 0; //After making the copy into it, we have to reset the iterator
+
+        // To print it out:
+        byte[] compressedBytes = new byte[50]; //For printing the compressed Bytes
+        byte[] finalBytes = new byte[50];
+        // Filling a byte array with 50 bytes of the compressed data
+        compressedDestination.ReadAtLeast(compressedBytes, 49, throwOnEndOfStream: false); //Reading compressed bytes
+        compressedDestination.Position = 0;
+
+        MemoryStream uncompressedDestination = new();
+        using (var decompressor = new DeflateStream(compressedDestination, CompressionMode.Decompress, leaveOpen: true))
+        {
+            decompressor.CopyTo(uncompressedDestination); //UncompressedDestination will have the decompressed data stream from decompressor
+        } //Cannot access a close stream error*
+        uncompressedDestination.Position = 0;
+        // Filling a byte array with 50 bytes of the just decompressed data
+        uncompressedDestination.ReadAtLeast(finalBytes, 5, throwOnEndOfStream: false);
+        uncompressedDestination.Position = 0;
+
+        byte[] originalBytes = uncompressedStream.ToArray();
+        // Compressed Size
+        Console.WriteLine($"CompressedDestination size: {compressedDestination.Length}");
+        // Size after decompressing
+        Console.WriteLine($"UncompressedDestination (decompressor copy) size: {uncompressedDestination.Length}");
+        Console.WriteLine($"Uncompressed: {Encoding.ASCII.GetString(originalBytes)}");
+        Console.WriteLine($"Compressed: "); Print(compressedBytes);
+        Console.WriteLine($"Final: {Encoding.ASCII.GetString(finalBytes)}");
+
+        //From the Stream -Check results-
+        originalData.Position = 0;
+        uncompressedStream.Position = 0;
+
+        //Making the original and decompressed stream arrays to check them byte per byte
+        byte[] uncompressedStreamBytes = uncompressedStream.ToArray();
+        byte[] decompressorOutputBytes = uncompressedDestination.ToArray(); //After read()
+        uncompressedStream.Position = 0;
+        uncompressedDestination.Position = 0;
+
+        //Porque esta casteado a Stream aunque haya creado DeflateS
+
+        Assert.Equal(uncompressedStreamBytes.Length, decompressorOutputBytes.Length);
+        for (int i = 0; i < uncompressedStreamBytes.Length; i++)
+        {
+            Assert.Equal(uncompressedStreamBytes[i], decompressorOutputBytes[i]);
+        }
+    }
+
     private void Print(byte[] arr)
     {
         foreach (byte b in arr)

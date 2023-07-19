@@ -115,8 +115,8 @@ internal sealed class OutputWindow
     {
         // Remember: We are copying the data to the second portion of the window -look-ahead-
         // So bytesUsed might be the size of the first portion 32K or 64K, at this point.
-        //AvailableBytes is usually the size of the underlying buffer of the stream (for DeflateStream)
-        //This in particular is for copying the input respecting the I/O boundaries. 
+        // AvailableBytes is usually the size of the underlying buffer of the stream (for DeflateStream)
+        // This in particular is for copying the input respecting the I/O boundaries. 
         // It will lead us to either copy LEN bytes or just the amount available in the output window
         // (taking into account the byte boundaries)
         /// <summary> 
@@ -144,16 +144,9 @@ internal sealed class OutputWindow
             copied = input.CopyTo(_window, _lastIndex, length);
         }
 
-        _lastIndex = (_lastIndex + copied) & WindowMask; //To keep it withting the window sizw boundary
+        _lastIndex = (_lastIndex + copied) & WindowMask; //To keep it withting the window size boundary
         _bytesUsed += copied;
-        return copied; // Me imagino que esto es lo que espera el defalte stream como "bytesRead"
-                       // Pa luego hacer los error checking que casi borro de deflate y finalmente copiar al 
-                       // buffer del stream-underlying buffer de deflateStream**
-                       // y luego al buffer que se pasa por el argumento de Read() y listin
-    // Por hacer ----- Creo que hay que mover de lugar Decode()
-    // Con breakpoints checar que si este copiando la info y traverseando la maquina de estados apropiadamente
-    // y ya, ver que funcione con todo lo demas. (deberia hacer mas de una pasada en el loop del test y copiar la
-    // max cantidad posible que le permiten los 1024 del buffeSize
+        return copied; 
     }
 
     /// <summary>Free space in output window.</summary>

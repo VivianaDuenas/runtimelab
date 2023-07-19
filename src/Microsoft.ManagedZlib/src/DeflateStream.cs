@@ -269,8 +269,10 @@ public partial class DeflateStream : Stream
 
                 if (bytesRead != 0 && InflatorIsFinished)
                 {
+                    // Here the check for GZip will be done
+                    int what = _inflater.AvailableOutput;
                     // if we finished decompressing, we can't have anything left in the outputwindow.
-                    Debug.Assert(_inflater.AvailableOutput == 0, "We should have copied all stuff out!");
+                    Debug.Assert(what == 0, "We should have copied all stuff out!");
                     break; //Break outside of the loop
                 }
 
