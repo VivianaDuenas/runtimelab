@@ -8,6 +8,7 @@ using BenchmarkDotNet.Running;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Microsoft.ManagedZLib.Benchmarks;
 
@@ -18,57 +19,35 @@ namespace Microsoft.ManagedZLib.Benchmarks;
 [EtwProfiler(performExtraBenchmarksRun:true)]
 public class ManagedZLibBenchmark
 {
-    public static IEnumerable<string> UncompressedTestFileNames()
-    {
-        yield return "TestDocument.pdf"; // 199 KB small test document with repeated paragraph, PDF are common
-        yield return "alice29.txt"; // 145 KB, copy of "ALICE'S ADVENTURES IN WONDERLAND" book, an example of text file
-        yield return "sum"; // 37.3 KB, some binary content, an example of binary file
-    }
+    int firstNumber;
+    int secondNumber;
+    int nextNumber;
 
-    public CompressedFile? CompressedFile;
-    private MemoryStream? _outputStream;
+    [Params(20, 30, 40, 80, 100)]
+    public int Number { get; set; }
 
     [GlobalSetup]
     public void Setup()
     {
-        Debug.Assert(File != null);
-        CompressedFile = new CompressedFile(File, Level);
-        _outputStream = new MemoryStream(CompressedFile.UncompressedData.Length); 
-
-    }
-
-
-    [ParamsSource(nameof(UncompressedTestFileNames))]
-    public string? File { get; set; }
-
-    [Params(System.IO.Compression.CompressionLevel.SmallestSize,
-            System.IO.Compression.CompressionLevel.Optimal,
-            System.IO.Compression.CompressionLevel.Fastest)] // we don't test the performance of CompressionLevel.NoCompression on purpose
-    public System.IO.Compression.CompressionLevel Level { get; set; }
-
-
-    [GlobalCleanup]
-    public void Cleanup() => CompressedFile?.CompressedDataStream.Dispose();
-
-    [Benchmark(Baseline = true)]
-    public void DecompressNative()
-    {
-        CompressedFile!.CompressedDataStream.Position = 0;
-        _outputStream!.Position = 0;
-
-        System.IO.Compression.DeflateStream decompressor = new System.IO.Compression.DeflateStream(CompressedFile.CompressedDataStream, System.IO.Compression.CompressionMode.Decompress);
-        decompressor.CopyTo(_outputStream);
+        firstNumber = 0; 
+        secondNumber = 1; 
+        nextNumber = 0;
     }
 
     [Benchmark]
-    public void DecompressManaged()
+    public int DecompressManaged()
     {
-        CompressedFile!.CompressedDataStream.Position = 0;
-        _outputStream!.Position = 0;
-
-
-        DeflateStream decompressor = new DeflateStream(CompressedFile.CompressedDataStream, CompressionMode.Decompress);
-        decompressor.CopyTo(_outputStream);
+        
+        // To return the first Fibonacci number  
+        if (Number == 0)
+            return firstNumber;
+        for (int i = 2; i <= Number; i++)
+        {
+            nextNumber = firstNumber + secondNumber;
+            firstNumber = secondNumber;
+            secondNumber = nextNumber;
+        }
+        return secondNumber;
     }
 
     public class ProgramRun
