@@ -23,7 +23,8 @@ public class ManagedZLibBenchmark
     int secondNumber;
     int nextNumber;
 
-    [Params(20, 30, 40, 80, 100)]
+    //[Params(20, 30, 40, 80, 100)]
+    [Params(40)]
     public int Number { get; set; }
 
     [GlobalSetup]

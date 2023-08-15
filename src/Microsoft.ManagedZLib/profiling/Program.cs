@@ -43,7 +43,7 @@ internal class Program
         Stopwatch stopWatch = new Stopwatch();
 
         //Decrement the Nth Number by 1. This is because the series starts with 0
-        int NthNumber=80;
+        int NthNumber=40;
 
         for (int i = 0; i < 1000; i++)
         {
