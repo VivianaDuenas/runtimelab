@@ -2,9 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Diagnosers;
-using BenchmarkDotNet.Diagnostics.Windows.Configs;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
+using Perfolizer.Horology;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -15,7 +16,6 @@ namespace Microsoft.ManagedZLib.Benchmarks;
 // BenchmarkDotNet creates a type which derives from type with benchmarks. 
 // So the type with benchmarks must not be sealed and it can NOT BE STATIC 
 // and it has to BE PUBLIC. It also has to be a class (no structs support).
-[EtwProfiler(performExtraBenchmarksRun: true)]
 public class ManagedZLibBenchmark
 {
     public static IEnumerable<string> UncompressedTestFileNames()
@@ -73,7 +73,19 @@ public class ManagedZLibBenchmark
 
     public class ProgramRun
     {
-        public static void Main(string[] args) => BenchmarkSwitcher.FromAssembly(typeof(ProgramRun).Assembly).Run(args);
+        public static void Main(string[] args)
+        {
+            var job = Job.Default
+                .WithWarmupCount(1) // 1 warmup is enough for our purpose
+                .WithIterationTime(TimeInterval.FromMilliseconds(250)) // the default is 0.5s per iteration, which is slightly too much for us
+                .WithMinIterationCount(15)
+                .WithMaxIterationCount(20); // we don't want to run more that 20 iterations
+
+            var config = DefaultConfig.Instance
+                .AddJob(job.AsDefault());
+
+            BenchmarkSwitcher.FromAssembly(typeof(ProgramRun).Assembly).Run(args, config);
+        }
     }
 
 }
