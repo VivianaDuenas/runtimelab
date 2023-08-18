@@ -493,7 +493,8 @@ internal class Inflater
                     goto case InflaterState.HaveDistCode;
 
                 case InflaterState.HaveDistCode:
-                    if (!getDistance(ref freeBytes)) return false; // If not enough bits available
+                    if (!getDistancePair(ref freeBytes)) return false; // If not enough bits available
+                    _state = InflaterState.DecodeTop;
                     break;
 
                 default:
@@ -505,11 +506,12 @@ internal class Inflater
         return true;
     }
 
-    private bool getDistance(ref int freeBytes)
+    // The part that actually does the LZ77 pair conversion
+    private bool getDistancePair(ref int freeBytes)
     {
         // To avoid a table lookup we note that for distanceCode > 3,
         // extra_bits = (distanceCode-2) >> 1
-        int offset = _distanceCode + 1;
+        int offset = _distanceCode + 1; // Length from the distance for the pair
         if (_distanceCode > 3)
         {
             _extraBits = (_distanceCode - 2) >> 1;
@@ -523,7 +525,6 @@ internal class Inflater
 
         _output.WriteLengthDistance(_length, offset);
         freeBytes -= _length;
-        _state = InflaterState.DecodeTop;
         return true;
     }
     // Format of Non-compressed blocks (BTYPE=00) - RFC1951 spec
