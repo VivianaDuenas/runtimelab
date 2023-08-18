@@ -15,7 +15,8 @@ internal class Program
 {
 
     static Stopwatch stopWatch = new Stopwatch();
-    static CompressedFile compressedFile = new("TestDocument.pdf", System.IO.Compression.CompressionLevel.SmallestSize);
+    const string filename = "sum";
+    static CompressedFile compressedFile = new( filename, System.IO.Compression.CompressionLevel.SmallestSize);
     static MemoryStream expectedStream = new();
     //System.IO.Compression.DeflateStream decompressor = new(compressedFile.CompressedDataStream, System.IO.Compression.CompressionMode.Decompress);
 
@@ -36,7 +37,11 @@ internal class Program
 
     private static void Main(string[] args)
     {
-        int iter = 65_536;
+        int iter = 10_000_000;
+        Console.WriteLine("In profiling ConsoleApp");
+        Console.WriteLine($"For the file: {filename}");
+        Console.WriteLine($"Uncompressed size: {compressedFile.UncompressedSize}");
+        Console.WriteLine($"Compressed size: {compressedFile.CompressedSize}");
         compressedFile.CompressedDataStream.Position = 0;
         DeflateStream decompressor = new(compressedFile.CompressedDataStream, CompressionMode.Decompress);
 

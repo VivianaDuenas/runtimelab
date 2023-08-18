@@ -12,6 +12,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.X86;
 using System.Security;
 using System.Text;
 using static Microsoft.ManagedZLib.ManagedZLib;
@@ -28,9 +29,9 @@ internal class Inflater
     private readonly OutputWindow _output;
     private readonly InputBuffer _input;
 
-    private IHuffmanTree? _literalLengthTree;
-    private IHuffmanTree? _distanceTree; 
-    private IHuffmanTree? _codeLengthTree;
+    private InflateHuffmanTree? _literalLengthTree;
+    private InflateHuffmanTree? _distanceTree; 
+    private InflateHuffmanTree? _codeLengthTree;
 
     private int _literalLengthCodeCount;
     private int _distanceCodeCount;
@@ -134,8 +135,8 @@ internal class Inflater
         // Initializing window size according the type of deflate (window limits - 32k or 64k)
         // This has mainly: Output Window, Index last position (Where in window bytes array) and BytesUsed (As the quantity)
         _output = _deflate64? new OutputWindow() : new OutputWindow(_windowBits);
-        _codeList = new byte[IHuffmanTree.MaxLiteralTreeElements + IHuffmanTree.MaxDistTreeElements];
-        _codeLengthTreeCodeLength = new byte[IHuffmanTree.NumberOfCodeLengthTreeElements];
+        _codeList = new byte[InflateHuffmanTree.MaxLiteralTreeElements + InflateHuffmanTree.MaxDistTreeElements];
+        _codeLengthTreeCodeLength = new byte[InflateHuffmanTree.NumberOfCodeLengthTreeElements];
         _nonEmptyInput = false;
         _couldDecode = false; //After finishing decoding
         //Initial state of the state machine - Checking BFinal bit
@@ -330,8 +331,8 @@ internal class Inflater
             }
             else if (_blockType == BlockType.Static) //Type = Fixed Huffman codes
             {
-                _literalLengthTree = IHuffmanTree.StaticLiteralLengthTree;
-                _distanceTree = IHuffmanTree.StaticDistanceTree;
+                _literalLengthTree = InflateHuffmanTree.StaticLiteralLengthTree;
+                _distanceTree = InflateHuffmanTree.StaticDistanceTree;
                 _state = InflaterState.DecodeTop;
             }
             else if (_blockType == BlockType.Uncompressed) //Type = Stored with no compression
@@ -492,27 +493,7 @@ internal class Inflater
                     goto case InflaterState.HaveDistCode;
 
                 case InflaterState.HaveDistCode:
-                    // To avoid a table lookup we note that for distanceCode > 3,
-                    // extra_bits = (distanceCode-2) >> 1
-                    int offset;
-                    if (_distanceCode > 3)
-                    {
-                        _extraBits = (_distanceCode - 2) >> 1;
-                        int bits = _input.GetBits(_extraBits);
-                        if (bits < 0)
-                        {
-                            return false;
-                        }
-                        offset = DistanceBasePosition[_distanceCode] + bits;
-                    }
-                    else
-                    {
-                        offset = _distanceCode + 1;
-                    }
-
-                    _output.WriteLengthDistance(_length, offset);
-                    freeBytes -= _length;
-                    _state = InflaterState.DecodeTop;
+                    if (!getDistance(ref freeBytes)) return false; // If not enough bits available
                     break;
 
                 default:
@@ -524,6 +505,27 @@ internal class Inflater
         return true;
     }
 
+    private bool getDistance(ref int freeBytes)
+    {
+        // To avoid a table lookup we note that for distanceCode > 3,
+        // extra_bits = (distanceCode-2) >> 1
+        int offset = _distanceCode + 1;
+        if (_distanceCode > 3)
+        {
+            _extraBits = (_distanceCode - 2) >> 1;
+            int bits = _input.GetBits(_extraBits);
+            if (bits < 0)
+            {
+                return false;
+            }
+            offset = DistanceBasePosition[_distanceCode] + bits;
+        }
+
+        _output.WriteLengthDistance(_length, offset);
+        freeBytes -= _length;
+        _state = InflaterState.DecodeTop;
+        return true;
+    }
     // Format of Non-compressed blocks (BTYPE=00) - RFC1951 spec
     private bool DecodeUncompressedBlock(out bool end_of_block)
     {
@@ -649,7 +651,7 @@ internal class Inflater
                 }
 
                 // create huffman tree for code length
-                _codeLengthTree = new IHuffmanTree(_codeLengthTreeCodeLength);
+                _codeLengthTree = new InflateHuffmanTree(_codeLengthTreeCodeLength);
                 _codeArraySize = _literalLengthCodeCount + _distanceCodeCount;
                 _loopCounter = 0; // reset loop count
 
@@ -766,21 +768,21 @@ internal class Inflater
                 throw new InvalidDataException("UnknownState - Decoder is in some unknown state.This might be caused by corrupted data.");
         }
 
-        byte[] literalTreeCodeLength = new byte[IHuffmanTree.MaxLiteralTreeElements];
-        byte[] distanceTreeCodeLength = new byte[IHuffmanTree.MaxDistTreeElements];
+        byte[] literalTreeCodeLength = new byte[InflateHuffmanTree.MaxLiteralTreeElements];
+        byte[] distanceTreeCodeLength = new byte[InflateHuffmanTree.MaxDistTreeElements];
 
         // Create literal and distance tables
         Array.Copy(_codeList, literalTreeCodeLength, _literalLengthCodeCount);
         Array.Copy(_codeList, _literalLengthCodeCount, distanceTreeCodeLength, 0, _distanceCodeCount);
 
         // Make sure there is an end-of-block code, otherwise how could we ever end?
-        if (literalTreeCodeLength[IHuffmanTree.EndOfBlockCode] == 0)
+        if (literalTreeCodeLength[InflateHuffmanTree.EndOfBlockCode] == 0)
         {
             throw new InvalidDataException();
         }
 
-        _literalLengthTree = new IHuffmanTree(literalTreeCodeLength);
-        _distanceTree = new IHuffmanTree(distanceTreeCodeLength);
+        _literalLengthTree = new InflateHuffmanTree(literalTreeCodeLength);
+        _distanceTree = new InflateHuffmanTree(distanceTreeCodeLength);
         _state = InflaterState.DecodeTop;
         return true;
     }

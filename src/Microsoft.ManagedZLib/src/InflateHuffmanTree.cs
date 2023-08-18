@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Microsoft.ManagedZLib;
 
@@ -24,7 +26,7 @@ namespace Microsoft.ManagedZLib;
 //   Comm. ACM, 33,4, April 1990, pp. 449-459.
 
 
-internal sealed class IHuffmanTree
+internal sealed class InflateHuffmanTree
 {
     internal const int MaxLiteralTreeElements = 288;
     internal const int MaxDistTreeElements = 32;
@@ -44,11 +46,11 @@ internal sealed class IHuffmanTree
     private readonly int _tableMask;
 
     // huffman tree for static block
-    public static IHuffmanTree StaticLiteralLengthTree { get; } = new IHuffmanTree(GetStaticLiteralTreeLength());
+    public static InflateHuffmanTree StaticLiteralLengthTree { get; } = new InflateHuffmanTree(GetStaticLiteralTreeLength());
 
-    public static IHuffmanTree StaticDistanceTree { get; } = new IHuffmanTree(GetStaticDistanceTreeLength());
+    public static InflateHuffmanTree StaticDistanceTree { get; } = new InflateHuffmanTree(GetStaticDistanceTreeLength());
 
-    public IHuffmanTree(byte[] codeLengths)
+    public InflateHuffmanTree(byte[] codeLengths)
     {
         Debug.Assert(
             codeLengths.Length == MaxLiteralTreeElements ||
@@ -278,28 +280,26 @@ internal sealed class IHuffmanTree
         }
 
         // decode an element
-        int symbol = _table[bitBuffer & _tableMask];
+        int symbol = Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_table), (int)bitBuffer & _tableMask);
         if (symbol < 0)
         {
             //  this will be the start of the binary tree
             // navigate the tree
             int res = symbol;
             uint mask = (uint)1 << _tableBits;
-            uint index = bitBuffer & (uint)_tableMask;
+            // uint index = bitBuffer & (uint)_tableMask;
             // If it's negative and it's not in the dictionary, 
             // process the symbol
-            if (!_symDict.TryGetValue(index, out symbol))
+            // if (!_symDict.TryGetValue(index, out symbol))
             {
                 do
                 {// Most expensive operation
                     res = -res;
-                    if ((bitBuffer & mask) == 0)
-                        res = _left[res];
-                    else
-                        res = _right[res];
+                    ref short traversal = ref MemoryMarshal.GetArrayDataReference((bitBuffer & mask) == 0 ? _left : _right);
+                    res = Unsafe.Add(ref traversal, res);
                     mask <<= 1;
                 } while (res < 0);
-                _symDict[index] = res;
+                // _symDict[index] = res;
                 symbol = res;
             }
         }
