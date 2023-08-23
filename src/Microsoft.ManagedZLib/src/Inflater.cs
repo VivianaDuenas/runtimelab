@@ -180,7 +180,7 @@ internal class Inflater
         int bytesRead = 0;
         // This division of _uncompressedSize is for GZip
         // For Raw Inflate, it is not necessary to compare the inflate count (bytes read so far)
-        // with anything else, besides cheching is a valid number fr either finish the loop or
+        // with anything else, besides checking is a valid number fr either finish the loop or
         // refill the buffer that refers to the underlying deflate stream buffer. (Default size: 8192)
         do
         {
