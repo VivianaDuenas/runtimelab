@@ -30,12 +30,13 @@ internal sealed class InputBuffer
     /// <summary>Ensure that count bits are in the bit buffer.</summary>
     /// <param name="count">Can be up to 16.</param>
     /// <returns>Returns false if input is not sufficient to make this true.</returns>
-    public bool EnsureBitsAvailable(int count)
+    public bool EnsureBitsAvailable(uint count)
     {
         Debug.Assert(0 < count && count <= 16, "count is invalid.");
 
         // Manual inlining to improve perf
-        if (_bitsInBuffer < count)
+        if (_bitsInBuffer < count) //count is mainly 0-8, for raw inflate,
+                                   //but this supports up to 16
         {
             if (NeedsInput())
             {
@@ -46,18 +47,18 @@ internal sealed class InputBuffer
             _bitBuffer |= (uint)_buffer.Span[0] << (int)_bitsInBuffer;
             _buffer = _buffer.Slice(1);
             _bitsInBuffer += 8;
-
-            if (_bitsInBuffer < count)
-            {
-                if (NeedsInput())
-                {
-                    return false;
-                }
-                // Insert a byte to bitbuffer
-                _bitBuffer |= (uint)_buffer.Span[0] << (int)_bitsInBuffer;
-                _buffer = _buffer.Slice(1);
-                _bitsInBuffer += 8;
-            }
+            // At least for raw inflate, this is just used for max count = 8 bits
+            //if (_bitsInBuffer < count)
+            //{
+            //    if (NeedsInput())
+            //    {
+            //        return false;
+            //    }
+            //    // Insert a byte to bitbuffer
+            //    _bitBuffer |= (uint)_buffer.Span[0] << (int)_bitsInBuffer;
+            //    _buffer = _buffer.Slice(1);
+            //    _bitsInBuffer += 8;
+            //}
         }
 
         return true;
@@ -108,17 +109,15 @@ internal sealed class InputBuffer
     private static uint GetBitMask(int count) => ((uint)1 << count) - 1;
 
     /// <summary>Gets count bits from the input buffer. Returns -1 if not enough bits available.</summary>
-    public int GetBits(int count)
+    public int GetBits(uint count)
     {
-        Debug.Assert(0 < count && count <= 16, "count is invalid.");
-
         if (!EnsureBitsAvailable(count))
         {
             return -1;
         }
-
-        int result = (int)(_bitBuffer & GetBitMask(count));
-        _bitBuffer >>= count;
+        Debug.Assert(0 < count && count <= 16, "count is invalid.");
+        int result = (int)(_bitBuffer & GetBitMask(unchecked((int)count))); // We check count is in bounds with the assert before
+        _bitBuffer >>= unchecked((int)count);
         _bitsInBuffer -= (uint)count;
         return result;
     }

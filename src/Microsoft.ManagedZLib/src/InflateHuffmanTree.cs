@@ -117,7 +117,7 @@ internal sealed class InflateHuffmanTree
 
     // Calculate the huffman code for each character based on the code length for each character.
     // This algorithm is described in standard RFC 1951
-    private uint[] CalculateHuffmanCode()
+    private void CalculateHuffmanCode(ref Span<uint> code)
     {
         Span<uint> bitLengthCount = stackalloc uint[17];
         bitLengthCount.Clear();
@@ -136,7 +136,7 @@ internal sealed class InflateHuffmanTree
             nextCode[bits] = tempCode;
         }
 
-        uint[] code = new uint[MaxLiteralTreeElements];
+        //Span<uint> code = stackalloc uint[MaxLiteralTreeElements];
         for (int i = 0; i < _codeLengthArray.Length; i++)
         {
             int len = _codeLengthArray[i];
@@ -147,14 +147,14 @@ internal sealed class InflateHuffmanTree
                 nextCode[len]++;
             }
         }
-        return code;
     }
 
     private void CreateTable()
     {
-        uint[] codeArray = CalculateHuffmanCode();
+        Span<uint> codeArray = stackalloc uint[MaxLiteralTreeElements]; ;
+        CalculateHuffmanCode(ref codeArray);
 #if DEBUG
-        _codeArrayDebug = codeArray;
+        _codeArrayDebug = codeArray.ToArray();
 #endif
 
         short avail = (short)_codeLengthArray.Length;
@@ -191,7 +191,7 @@ internal sealed class InflateHuffmanTree
                     // or: initial_start_at < increment
                     //
                     int increment = 1 << len;
-                    if (start >= increment)
+                    if (start >= increment) //over-subscribed sanity check
                     {
                         throw new InvalidDataException("InvalidHuffmanData - Failed to construct a huffman tree using the length array. The stream might be corrupted.");
                     }

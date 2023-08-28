@@ -48,7 +48,7 @@ internal class Inflater
     // Extra bits for merging literal and length's alphabet
     private int _length; 
     private int _distanceCode;
-    private int _extraBits;
+    private uint _extraBits;
 
     private int _loopCounter;
     private int _lengthCode;
@@ -514,7 +514,7 @@ internal class Inflater
         int offset = _distanceCode + 1; // Length from the distance for the pair
         if (_distanceCode > 3)
         {
-            _extraBits = (_distanceCode - 2) >> 1;
+            _extraBits = ((uint)_distanceCode - 2) >> 1;
             int bits = _input.GetBits(_extraBits);
             if (bits < 0)
             {
