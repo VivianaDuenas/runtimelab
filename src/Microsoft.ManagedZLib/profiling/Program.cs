@@ -21,17 +21,23 @@ internal class Program
     //System.IO.Compression.DeflateStream decompressor = new(compressedFile.CompressedDataStream, System.IO.Compression.CompressionMode.Decompress);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    static void TestM(DeflateStream decompressor)
+    static void TestM()
     {
-        compressedFile.CompressedDataStream.Position = 0;
-        expectedStream.Position = 0;
-        decompressor.CopyTo(expectedStream); 
-    }
-    static void TestN(MemoryStream expectedStream, CompressedFile compressedFile, System.IO.Compression.DeflateStream decompressor)
-    {
+        DeflateStream decompressor = new(compressedFile.CompressedDataStream, CompressionMode.Decompress, leaveOpen:true);
         compressedFile.CompressedDataStream.Position = 0;
         expectedStream.Position = 0;
         decompressor.CopyTo(expectedStream);
+        decompressor.Dispose();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void TestN()
+    {
+        System.IO.Compression.DeflateStream decompressor = new(compressedFile.CompressedDataStream, System.IO.Compression.CompressionMode.Decompress, leaveOpen:true);
+        compressedFile.CompressedDataStream.Position = 0;
+        expectedStream.Position = 0;
+        decompressor.CopyTo(expectedStream);
+        decompressor.Dispose();
     }
 
 
@@ -43,7 +49,6 @@ internal class Program
         Console.WriteLine($"Uncompressed size: {compressedFile.UncompressedSize}");
         Console.WriteLine($"Compressed size: {compressedFile.CompressedSize}");
         compressedFile.CompressedDataStream.Position = 0;
-        DeflateStream decompressor = new(compressedFile.CompressedDataStream, CompressionMode.Decompress);
 
         Console.WriteLine($"Environment.Version: {Environment.Version}");
         Console.WriteLine($"RuntimeInformation.FrameworkDescription: {RuntimeInformation.FrameworkDescription}");
@@ -51,13 +56,13 @@ internal class Program
 
         for (int i = 0; i < 100; i++)
         {
-            TestM(decompressor);
+            TestM();
         }
 
         stopWatch.Start();
         for (int i = 0; i < iter; i++)
         {
-            TestM(decompressor);
+            TestM();
         }
         stopWatch.Stop();
 

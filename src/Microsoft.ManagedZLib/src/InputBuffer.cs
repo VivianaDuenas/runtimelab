@@ -17,7 +17,7 @@ namespace Microsoft.ManagedZLib;
 // which means we are running out of input.
 internal sealed class InputBuffer
 {
-    private Memory<byte> _inputBuffer; // Input stream buffer
+    private Memory<byte> _buffer; // Input stream buffer
     private uint _bitBuffer;      // To quickly shift in this buffer
     private int _bitsInBuffer;    // #bits available in bitBuffer
 
@@ -25,7 +25,7 @@ internal sealed class InputBuffer
     public int AvailableBits => _bitsInBuffer;
 
     /// <summary>Total bytes available in the input buffer.</summary>
-    public int AvailableBytes => _inputBuffer.Length + (_bitsInBuffer / 8);
+    public int AvailableBytes => _buffer.Length + (_bitsInBuffer / 8);
 
     /// <summary>Ensure that count bits are in the bit buffer.</summary>
     /// <param name="count">Can be up to 16.</param>
@@ -43,8 +43,8 @@ internal sealed class InputBuffer
             }
 
             // Insert a byte to bitbuffer
-            _bitBuffer |= (uint)_inputBuffer.Span[0] << _bitsInBuffer;
-            _inputBuffer = _inputBuffer.Slice(1);
+            _bitBuffer |= (uint)_buffer.Span[0] << _bitsInBuffer;
+            _buffer = _buffer.Slice(1);
             _bitsInBuffer += 8;
 
             if (_bitsInBuffer < count)
@@ -54,8 +54,8 @@ internal sealed class InputBuffer
                     return false;
                 }
                 // Insert a byte to bitbuffer
-                _bitBuffer |= (uint)_inputBuffer.Span[0] << _bitsInBuffer;
-                _inputBuffer = _inputBuffer.Slice(1);
+                _bitBuffer |= (uint)_buffer.Span[0] << _bitsInBuffer;
+                _buffer = _buffer.Slice(1);
                 _bitsInBuffer += 8;
             }
         }
@@ -74,27 +74,27 @@ internal sealed class InputBuffer
     {
         if (_bitsInBuffer < 8)
         {
-            if (_inputBuffer.Length > 1)
+            if (_buffer.Length > 1)
             {
-                Span<byte> span = _inputBuffer.Span;
-                _bitBuffer |= (uint)span[1] << (_bitsInBuffer + 8);
+                Span<byte> span = _buffer.Span;
                 _bitBuffer |= (uint)span[0] << _bitsInBuffer;
-                _inputBuffer = _inputBuffer.Slice(2);
+                _bitBuffer |= (uint)span[1] << (_bitsInBuffer + 8);
+                _buffer = _buffer.Slice(2);
                 _bitsInBuffer += 16;
             }
-            else if (_inputBuffer.Length != 0)
+            else if (_buffer.Length != 0)
             {
-                _bitBuffer |= (uint)_inputBuffer.Span[0] << _bitsInBuffer;
-                _inputBuffer = Memory<byte>.Empty;
+                _bitBuffer |= (uint)_buffer.Span[0] << _bitsInBuffer;
+                _buffer = _buffer.Slice(1);
                 _bitsInBuffer += 8;
             }
         }
         else if (_bitsInBuffer < 16)
         {
-            if (!_inputBuffer.IsEmpty)
+            if (!_buffer.IsEmpty)
             {
-                _bitBuffer |= (uint)_inputBuffer.Span[0] << _bitsInBuffer;
-                _inputBuffer = _inputBuffer.Slice(1);
+                _bitBuffer |= (uint)_buffer.Span[0] << _bitsInBuffer;
+                _buffer = _buffer.Slice(1);
                 _bitsInBuffer += 8;
             }
         }
@@ -127,7 +127,7 @@ internal sealed class InputBuffer
     /// available, copies fewer bytes.
     /// </summary>
     /// <returns>Returns the number of bytes copied, 0 if no byte is available.</returns>
-    public int CopyTo(Span<byte> output)
+    public int CopyTo(Memory<byte> output)
     {
         Debug.Assert(_bitsInBuffer % 8 == 0);
 
@@ -135,7 +135,7 @@ internal sealed class InputBuffer
         int bytesFromBitBuffer = 0;
         while (_bitsInBuffer > 0 && !output.IsEmpty)
         {
-            output[0] = (byte)_bitBuffer;
+            output.Span[0] = (byte)_bitBuffer;
             output = output.Slice(1);
             _bitBuffer >>= 8;
             _bitsInBuffer -= 8;
@@ -147,17 +147,34 @@ internal sealed class InputBuffer
             return bytesFromBitBuffer;
         }
 
-        int length = Math.Min(output.Length, _inputBuffer.Length);
-        _inputBuffer.Slice(0, length).Span.CopyTo(output);
-        _inputBuffer = _inputBuffer.Slice(length);
+        int length = Math.Min(output.Length, _buffer.Length);
+        _buffer.Slice(0, length).CopyTo(output);
+        _buffer = _buffer.Slice(length);
         return bytesFromBitBuffer + length;
+    }
+
+    /// <summary>
+    /// Copies length bytes from input buffer to output buffer starting at output[offset].
+    /// You have to make sure, that the buffer is byte aligned. If not enough bytes are
+    /// available, copies fewer bytes.
+    /// </summary>
+    /// <returns>Returns the number of bytes copied, 0 if no byte is available.</returns>
+    public int CopyTo(byte[] output, int offset, int length)
+    {
+        Debug.Assert(output != null);
+        Debug.Assert(offset >= 0);
+        Debug.Assert(length >= 0);
+        Debug.Assert(offset <= output.Length - length);
+        Debug.Assert((_bitsInBuffer % 8) == 0);
+
+        return CopyTo(output.AsMemory(offset, length));
     }
 
     /// <summary>
     /// Return true is all input bytes are used.
     /// This means the caller can call SetInput to add more input.
     /// </summary>
-    public bool NeedsInput() => _inputBuffer.IsEmpty;
+    public bool NeedsInput() => _buffer.IsEmpty;
 
     /// <summary>
     /// Set the byte buffer to be processed.
@@ -170,8 +187,25 @@ internal sealed class InputBuffer
     {
         if (NeedsInput())
         {
-            _inputBuffer = buffer;
+            _buffer = buffer;
         }
+    }
+
+    /// <summary>
+    /// Set the byte array to be processed.
+    /// All the bits remained in bitBuffer will be processed before the new bytes.
+    /// We don't clone the byte array here since it is expensive.
+    /// The caller should make sure after a buffer is passed in.
+    /// It will not be changed before calling this function again.
+    /// </summary>
+    public void SetInput(byte[] buffer, int offset, int length)
+    {
+        Debug.Assert(buffer != null);
+        Debug.Assert(offset >= 0);
+        Debug.Assert(length >= 0);
+        Debug.Assert(offset <= buffer.Length - length);
+
+        SetInput(buffer.AsMemory(offset, length));
     }
 
     /// <summary>Skip n bits in the buffer.</summary>
@@ -189,4 +223,3 @@ internal sealed class InputBuffer
         _bitsInBuffer -= (_bitsInBuffer % 8);
     }
 }
-
