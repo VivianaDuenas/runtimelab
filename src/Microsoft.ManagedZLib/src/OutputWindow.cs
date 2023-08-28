@@ -3,6 +3,9 @@
 
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
 namespace Microsoft.ManagedZLib;
 
 /// <summary>
@@ -54,7 +57,8 @@ internal sealed class OutputWindow
     public void Write(byte b)
     {
         Debug.Assert(_bytesUsed < WindowSize, "Can't add byte when window is full!");
-        _window.Span[_lastIndex++] = b;
+        Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_window.ToArray()), _lastIndex++) = b;
+        //_window.Span[_lastIndex++] = b;
         _lastIndex &= WindowMask;
         ++_bytesUsed;
     }
