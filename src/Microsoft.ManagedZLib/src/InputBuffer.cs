@@ -3,6 +3,8 @@
 
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Microsoft.ManagedZLib;
 
@@ -97,7 +99,7 @@ internal sealed class InputBuffer
         {
             if (!_buffer.IsEmpty)
             {
-                _bitBuffer |= (uint)_buffer.Span[0] << (int)_bitsInBuffer;
+                _bitBuffer |= (uint)MemoryMarshal.GetReference(_buffer.Span) << (int)_bitsInBuffer;
                 _buffer = _buffer.Slice(1);
                 _bitsInBuffer += 8;
             }

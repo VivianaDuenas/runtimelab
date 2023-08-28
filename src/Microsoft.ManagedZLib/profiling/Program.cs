@@ -15,7 +15,7 @@ internal class Program
 {
 
     static Stopwatch stopWatch = new Stopwatch();
-    const string filename = "alice29.txt";
+    const string filename = "sum";
     static CompressedFile compressedFile = new( filename, System.IO.Compression.CompressionLevel.SmallestSize);
     static MemoryStream expectedStream = new();
     //System.IO.Compression.DeflateStream decompressor = new(compressedFile.CompressedDataStream, System.IO.Compression.CompressionMode.Decompress);
