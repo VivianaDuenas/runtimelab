@@ -58,9 +58,7 @@ internal sealed class OutputWindow
     public void Write(byte b)
     {
         Debug.Assert(_bytesUsed < WindowSize, "Can't add byte when window is full!");
-        // For checking proving bound check's overhead
-        Unsafe.Add(ref MemoryMarshal.GetReference(_window.Span), _lastIndex++) = b;
-        //_window.Span[_lastIndex++] = b;
+        _window.Span[_lastIndex++] = b;
         _lastIndex &= WindowMask;
         ++_bytesUsed;
     }
