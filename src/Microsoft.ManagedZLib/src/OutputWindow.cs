@@ -56,11 +56,6 @@ internal class OutputWindow
     // max_insert_length is used only for compression levels <= 3.
     public uint MaxInsertLength() => MaxLazyMatch;
     public int WinInit() => MaxMatch;
-    public Memory<byte> Buffer
-    {
-        get { return _output; }
-        set { _output = value; }
-    }
     //Window position at the beginning of the current output block. Gets
     //negative when the window is moved backwards.
     public long _blockStart; //This might be AvailOut
@@ -545,7 +540,7 @@ internal class OutputWindow
     /// <summary>
     /// Copy up to length of bytes from input directly.
     /// </summary>
-    public int CopyFrom(InputBuffer input, int length) // I htink this is the as ReadBuffer - To check when refactoring
+    public int CopyFrom(InputBuffer input, int length) // I think this is the as ReadBuffer - To check when refactoring
     {
         /// <summary> 
         /// Either how much input is available or how much free space in the output buffer we have. 
@@ -553,7 +548,7 @@ internal class OutputWindow
         /// It will lead us to either copy LEN bytes or just the amount available in the output window
         // taking into account the byte boundaries.
         /// </summary>
-        length = Math.Min(Math.Min(length, _windowSize - _bytesUsed), input.inputBufferSize);
+        length = Math.Min(Math.Min(length, _windowSize - _bytesUsed), (int)input.inputBufferSize);
         int copied;
 
         // We might need wrap around to copy all bytes.
@@ -566,13 +561,19 @@ internal class OutputWindow
             Debug.Assert(spaceLeft >= 0);
             Debug.Assert(_lastIndex <= _window.Length - spaceLeft);
             // Copy the first part
-            copied = input.CopyTo(_window.Span.Slice(_lastIndex, spaceLeft));
+            Debug.Assert(_lastIndex >= 0);
+            Debug.Assert(spaceLeft >= 0);
+            Debug.Assert(_lastIndex <= _window.Length - spaceLeft);
 
+            copied = input.CopyTo(_window.Span.Slice(_lastIndex, spaceLeft));
             if (copied == spaceLeft)
             {
                 Debug.Assert((length - spaceLeft) >= 0);
                 Debug.Assert(0 <= _window.Length - (length - spaceLeft));
                 // Only try to copy the second part if we have enough bytes in input
+                Debug.Assert((length - spaceLeft) >= 0);
+                Debug.Assert(0 <= _window.Length - (length - spaceLeft));
+
                 copied += input.CopyTo(_window.Span.Slice(0, length - spaceLeft));
             }
         }
@@ -582,6 +583,10 @@ internal class OutputWindow
             Debug.Assert(length >= 0);
             Debug.Assert(_lastIndex <= _window.Length - length);
             // Only one copy is needed if there is no wrap around.
+            Debug.Assert(_lastIndex >= 0);
+            Debug.Assert(length >= 0);
+            Debug.Assert(_lastIndex <= _window.Length - length);
+
             copied = input.CopyTo(_window.Span.Slice(_lastIndex, length));
 
         }
@@ -661,18 +666,18 @@ internal class OutputWindow
 
     // For initializing values needed in DeflateResetKeep
     // Migth be deleted later
-    public void Adler32() 
-    {
+    public void Adler32()
+    {// TODO: Add missing functinality for GZip/ZLibStream
         _adler = 0;
         throw new NotImplementedException();
     }
     public void CRC32()
-    {
+    {// TODO: Add missing functinality for GZip/ZLibStream
         _adler = 0;
         throw new NotImplementedException();
     }
     public void PutShortMSB(int header)
-    {
+    {// TODO: Add missing functinality for GZip/ZLibStream
         throw new NotImplementedException();
     }
 }

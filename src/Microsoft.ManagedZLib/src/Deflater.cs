@@ -8,6 +8,7 @@ using ZState = Microsoft.ManagedZLib.ManagedZLib.DeflateStates;
 using ZBlockState = Microsoft.ManagedZLib.ManagedZLib.BlockState;
 using System.Collections.Generic;
 using static Microsoft.ManagedZLib.ManagedZLib;
+using System.IO.Compression;
 
 namespace Microsoft.ManagedZLib;
 
@@ -94,7 +95,6 @@ internal class Deflater
     private readonly OutputWindow _output;
     private readonly InputBuffer _input;
     private readonly DeflateTrees _trees;
-    private int iterador;
     public bool NeedsInput() => _input.NeedsInput();
     public bool HasSymNext() => _trees._symIndex !=0;
     public int MaxDistance() => _output._windowSize - MinLookahead;
@@ -109,7 +109,6 @@ internal class Deflater
     // This compLevel parameter is just the version user friendly
     internal Deflater(CompressionLevel compressionLevel, int windowBits)
     {
-        iterador = 0;
         ManagedZLib.CompressionLevel zlibCompressionLevel; // This is the one actually used in all the processings
         int memLevel;
         _input = new InputBuffer();
@@ -155,9 +154,6 @@ internal class Deflater
         _output._strategy = (int)ManagedZLib.CompressionStrategy.DefaultStrategy; // Just the default
         // Setting variables for doing the matches
         DeflateReset();
-
-        //Might not be necessary - constructors do everything that DelfateInit2 used to do
-        DeflateInit2(zlibCompressionLevel, ManagedZLib.CompressionMethod.Deflated, windowBits, memLevel, _output._strategy);
     }
     
     // For assigning priority to the flush codes. This is how it's done in madler/zlib.
@@ -195,15 +191,7 @@ internal class Deflater
         if (windowBits == 8) windowBits = 9;  /* until 256-byte window bug fixed */
         return (windowBits < 0) ? -windowBits : windowBits &= 15;
     }
-    //This will use asserts instead of the ZLibNative error checking
-    private void DeflateInit2(ManagedZLib.CompressionLevel level,
-        ManagedZLib.CompressionMethod method,
-        int windowBits,
-        int memLevel,
-        ManagedZLib.CompressionStrategy strategy) { 
 
-        //Set everything up + error checking if needed - Might merge with DeflateInit later.
-    }
     // DeflateReset(): Sets some initial values.
     // ATTENTION: This method to be reviewed/re-valuated in refactoring stage**
     // I moved some initializations to DeflateTrees and OutputWindow constructors
@@ -333,7 +321,7 @@ internal class Deflater
     {
         // C Zlib returning values porting interpretation:
         // ERR - Possible Debug.Assert statement
-        // OK - return a substraction 
+        // OK/STRM - return a substraction 
         // bytesRead = outputBuffer.Length - _output.AvailableBytes
 
         ZFlushCode oldFlush = _output.lastFlush;
@@ -399,6 +387,8 @@ internal class Deflater
             /* Save the adler32 of the preset dictionary: */
             if (_output._strStart != 0)
             {
+                //TODO: Add missing functinality for GZip/ZLibStream
+                // Bellow are the wrapper of some missing implementation.
                 //putShortMSB(s, (uInt)(strm->adler >> 16));
                 //putShortMSB(s, (uInt)(strm->adler & 0xffff));
             }
@@ -415,6 +405,7 @@ internal class Deflater
             }
 
         }
+        // TODO: Add missing functinality for GZip / ZLibStream
         if (_status == ZState.GZipState){ }//Gzip header
 
         if (_status == ZState.ExtraState) { } //Gzip: Start of bytes to update crc
@@ -436,7 +427,7 @@ internal class Deflater
             }
         } // GZip: GZip header CRC
 
-        // --------- Most basic deflate operation starts here --------
+        // --------- Most core deflate operations starts here --------
         // For regular DeflateStream scenarios (Raw Deflate) all of the above should be ignore
         // and it should go from InitState to BusyState directly
         // Leading to here, after the error checking
@@ -773,20 +764,11 @@ internal class Deflater
     // matches. It is used only for the fast compression options.
     public ZBlockState DeflateFast(ZFlushCode flushCode) // TO-DO
     {
-        iterador++; //For debugging only. TODO: Take it away after
         uint hashHead; //Head of the hash chain - index
         bool blockFlush; //Set if current block must be flushed
 
         while (true)
         {
-            //if (_output._lookahead == 261)
-            //{
-            //    Debugger.Break();
-            //}
-            //if (_trees._symIndex == 49119 || _output._strStart > 32510)
-            //{
-            //    Debugger.Break();//for debugging huge iterations that would break the breakpoint -lol-
-            //}
             /* Make sure that we always have enough lookahead, except
              * at the end of the input file. We need MAX_MATCH bytes
              * for the next match, plus MIN_MATCH bytes to insert the
@@ -811,10 +793,6 @@ internal class Deflater
             //At this point we have always match_length < MIN_MATCH
             if (hashHead != NIL && _output._strStart - hashHead <= MaxDistance())
             {
-                if (_trees._symIndex == 11157 || _output._lookahead == 28490)
-                {
-                    //Debugger.Break(); //Exact case I'm trying to debug - Longest_match: Doesn't match native's
-                }
                 /* To simplify the code, we prevent matches with the string
                  * of window index 0 (in particular we have to avoid a match
                  * of the string with itself at the start of the input file).
@@ -826,34 +804,6 @@ internal class Deflater
             {
                 
                 blockFlush = _trees.TreeTallyDist(_output._strStart - _output._matchStart, _output._matchLength - MinMatch);
-                if (_trees._symIndex > 20000)
-                {
-                    // Debugger.Break();
-                }
-                if (_trees._symIndex > 25000)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 30000)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 39100)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 39600)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 49100)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex == 49149)
-                {
-                   // Debugger.Break();
-                }
                 _output._lookahead -= _output._matchLength;
 
                 if (_output._matchLength <= _output.MaxInsertLength() && 
@@ -888,34 +838,6 @@ internal class Deflater
                 blockFlush = _trees.TreeTallyLit(_output.Window((int)_output._strStart));          
                 _output._lookahead--;
                 _output._strStart++;
-                if (_trees._symIndex > 20000)
-                {
-                   // Debugger.Break();
-                }
-                if (_trees._symIndex > 25000)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 30000)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 39100)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 39600)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex > 49100)
-                {
-                    //Debugger.Break();
-                }
-                if (_trees._symIndex == 49149)
-                {
-                    //Debugger.Break();
-                }
             }
 
             if (blockFlush)
@@ -953,7 +875,6 @@ internal class Deflater
     }
     public ZBlockState DeflateSlow(ZFlushCode flushCode)
     {
-        //throw new NotImplementedException(); // TO-DO
         uint hashHead; //Head of the hash chain - index
         bool blockFlush; //Set if current block must be flushed
 

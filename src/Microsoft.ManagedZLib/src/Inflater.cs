@@ -2,21 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Buffers;
-using System.Collections;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
-using System.Diagnostics.Metrics;
-using System.Drawing;
 using System.IO;
-using System.IO.Compression;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security;
-using System.Text;
 using static Microsoft.ManagedZLib.ManagedZLib;
-using static Microsoft.ManagedZLib.ManagedZLib.ZLibStreamHandle;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Microsoft.ManagedZLib;
 
